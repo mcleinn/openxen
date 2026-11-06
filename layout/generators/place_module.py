@@ -11,7 +11,7 @@ Modes
 * default (update): open an existing board, move/rotate footprints found by reference,
   create the ones that are missing, (re)draw outline + LED cutouts on Edge.Cuts.
 
-Reference scheme per key ``n`` (0..55): ``SWn`` switch, ``HEn`` Hall sensor, ``Dn`` LED,
+Reference scheme per key ``n`` (0..55): ``Kn`` switch (``SWn`` is taken by HE60's buttons), ``HEn`` Hall sensor, ``Dn`` LED,
 ``Cn`` sensor decoupling, ``CFn`` sensor output filter. Holes ``H1..H8``.
 Footprints are looked up in the libraries given by ``--lib NAME=PATH`` (defaults cover the
 KiCad system libraries and the HE60 library in ``reference/repos``). Commit the board before
@@ -50,11 +50,15 @@ FP = {
     "sensor": ("Package_TO_SOT_SMD", "SOT-23"),
     "led": ("openxen", "LED_RGB_1206R_MHT151RGBCT"),  # reverse-mount 1206 RGB; its 2.1 mm NPTH is the light hole
     "cap": ("Capacitor_SMD", "C_0402_1005Metric"),
-    "hole": ("MountingHole", "MountingHole_3.2mm_M3"),
+    "hole": ("MountingHole", "MountingHole_3.2mm"),  # plain hole, no pad: standoff heads sit between the 14 mm switch housings
 }
 
 # Passive offsets relative to the switch centre (mm, x right, y down); bottom side.
-CAP_OFFSETS = {"C": (3.3, 1.6), "CF": (-3.3, 1.6)}
+# Sensor (SOT-23, rot -90, flipped): VCC pad top-left (-0.95,-0.94), OUT pad top-right (0.95,-0.94),
+# GND pad bottom (0,0.94). Decoupling cap left of the sensor, filter cap right of it, both vertical
+# with their "pad 1" (VCC / OUT) at the top and GND at the bottom; clear of the guide holes at +-5.08.
+CAP_OFFSETS = {"C": (-3.3, 0.0), "CF": (3.3, 0.0)}
+CAP_ROT = -90
 
 
 def mm(x: float, y: float) -> "pcbnew.VECTOR2I":
@@ -80,7 +84,12 @@ class Placer:
         fp = self.by_ref.get(ref)
         if fp is None:
             fp = self.load(lib, name)
+            fp.SetFPIDAsString(f"{lib}:{name}")
             fp.SetReference(ref)
+            if ref[0] in "KH":  # switches and mounting holes are not in the schematic
+                fp.SetBoardOnly(True)
+                fp.SetExcludedFromBOM(True)
+                fp.SetExcludedFromPosFiles(True)
             if value:
                 fp.SetValue(value)
             self.board.Add(fp)
@@ -125,11 +134,11 @@ def place(spec: dict, board: "pcbnew.BOARD", libs: dict[str, Path], redraw_edges
     uc = spec["unit_cell"]
     for k in spec["keys"]:
         n, x, y = k["id"], k["x"], k["y"]
-        p.ensure(f"SW{n}", *FP["switch"], x, y, 0, bottom=False, value="Lekker Tikken")
+        p.ensure(f"K{n}", *FP["switch"], x, y, 0, bottom=False, value="Lekker Tikken")
         p.ensure(f"HE{n}", *FP["sensor"], x + uc["sensor"]["x"], y + uc["sensor"]["y"], uc["sensor"]["rot"], bottom=True, value="GH39FKSW")
         p.ensure(f"D{n}", *FP["led"], x + uc["led"]["x"], y + uc["led"]["y"], 0, bottom=True, value="MHT151RGBCT")
-        p.ensure(f"C{n}", *FP["cap"], x + CAP_OFFSETS["C"][0], y + CAP_OFFSETS["C"][1], 90, bottom=True, value="100n")
-        p.ensure(f"CF{n}", *FP["cap"], x + CAP_OFFSETS["CF"][0], y + CAP_OFFSETS["CF"][1], 90, bottom=True, value="4n7")
+        p.ensure(f"C{n}", *FP["cap"], x + CAP_OFFSETS["C"][0], y + CAP_OFFSETS["C"][1], CAP_ROT, bottom=True, value="100n")
+        p.ensure(f"CF{n}", *FP["cap"], x + CAP_OFFSETS["CF"][0], y + CAP_OFFSETS["CF"][1], CAP_ROT, bottom=True, value="4.7n")
     for i, h in enumerate(spec["holes"], start=1):
         p.ensure(f"H{i}", *FP["hole"], h["x"], h["y"], 0, bottom=False)
     if redraw_edges:
