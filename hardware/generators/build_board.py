@@ -2,8 +2,8 @@
 """Rebuild the whole openxen-m56 board from the sources, deterministically (system Python).
 
 Steps: project files -> schematic -> ERC -> netlist -> board with key field -> HE60 controller
-blocks -> muxes and LED driver -> cell routing -> silkscreen -> [planes -> Freerouting ->
-bottom pour, with --route] -> DRC summary.
+blocks -> muxes and LED driver -> cell routing -> plane vias -> silkscreen -> [planes ->
+Freerouting (plane nets excluded) -> bottom pour, with --route] -> DRC summary.
 
 Routing is a pipeline step so a rebuild never silently loses it: `--route` re-runs the
 planes + Freerouting + bottom-pour chain (takes long); without it the board stops after the
@@ -49,6 +49,7 @@ def main() -> int:
     run([KPY, str(G / "copy_he60_blocks.py"), "--board", str(PCB)], "HE60 controller blocks")
     run([KPY, str(G / "place_rest.py"), "--board", str(PCB)], "muxes + LED driver")
     run([KPY, str(G / "route_cell.py"), "--board", str(PCB), "--all"], "cell routing")
+    run([KPY, str(G / "add_plane_vias.py"), "--board", str(PCB)], "+3.3VA pads -> plane vias")
     run([KPY, str(G / "tidy_silk.py"), "--board", str(PCB)], "silkscreen")
     if args.route:
         run([KPY, str(G / "add_zones.py"), "--board", str(PCB)], "planes (GND In1, +3.3VA In2)")
