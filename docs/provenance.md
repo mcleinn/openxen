@@ -36,6 +36,10 @@ Other clones (Zellia80-HE, Lucca-58HE, Plink, kicad-kbplacer, Fabrication-Toolki
 | Python (system) | 3.12.10 | pydantic 2.13.4 (libhmk schema), numpy, matplotlib, PIL, pypdf |
 | Rust | cargo at `~/.cargo/bin` | xentool backend (Phase 8) |
 | OpenSCAD | nightly | keycaps/case parts |
+| Java (portable) | Temurin 25.0.5 JRE under `reference/tools/jre25/` (also 21 under `jre/`) | runs Freerouting; no admin install |
+| Freerouting | 2.5.0 jar under `reference/tools/` | autorouter for comparison runs only (`hardware/generators/freeroute_cell.py`) |
+| 7-Zip | `C:\Program Files-Zip` | split-archive extraction (jlcparts database) |
+| jlcparts database | `reference/jlcparts/cache.sqlite3`, snapshot 2026-11-06 | JLCPCB stock / basic-extended lookups |
 
 ## Reference firmware build log
 
