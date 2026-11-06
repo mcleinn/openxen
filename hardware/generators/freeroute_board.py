@@ -48,6 +48,12 @@ def export_dsn(board_path: str, dsn: Path) -> int:
                     break
             j += 1
         txt = txt[:i] + txt[j + 1:]
+    # KiCad exports every NPTH hole as a keepout circle of hole diameter + 2 x 0.2 mm, and
+    # Freerouting then adds its own 0.2 mm clearance on top: the LED stubs (0.47 mm from the
+    # LED hole, DRC-clean) were flagged as 224 "unfixable" violations, which crippled the LED
+    # matrix routing. Shrink the keepouts back to the bare hole so the clearance applies once.
+    import re
+    txt = re.sub(r"\(keepout \"\" \(circle (\S+) (\d+)", lambda m: '(keepout "" (circle %s %d' % (m.group(1), int(m.group(2)) - 400), txt)
     nl = chr(10)
     for lay in ("In1.Cu", "In2.Cu"):
         txt = txt.replace("(layer %s%s      (type signal)" % (lay, nl), "(layer %s%s      (type power)" % (lay, nl))
