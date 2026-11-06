@@ -45,9 +45,9 @@ def main() -> int:
     # Inner layers are the GND / +3.3VA planes: declare them "power" so Freerouting only
     # routes on F.Cu / B.Cu and never cuts a plane with a trace (vias through them are fine).
     for lay in ("In1.Cu", "In2.Cu"):
-        txt = txt.replace(f"(layer {lay}
-      (type signal)", f"(layer {lay}
-      (type power)")
+        txt = txt.replace("(layer %s
+      (type signal)" % lay, "(layer %s
+      (type power)" % lay)
     dsn.write_text(txt, encoding="utf-8")
     print("DSN:", dsn.stat().st_size, "bytes; tracks before:", before, "; wires protected:", fixed)
     java = next(TOOLS.glob("jre25/*/bin/java.exe"))
