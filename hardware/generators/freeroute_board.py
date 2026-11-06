@@ -63,7 +63,9 @@ def main() -> int:
     ap.add_argument("--rounds", type=int, default=1, help="rounds; the board is saved after every round, so a killed run loses at most one round")
     ap.add_argument("--timeout", type=int, default=6 * 3600, help="seconds per round; Freerouting writes the SES only at the end of a round")
     ap.add_argument("--threads", type=int, default=4, help="optimizer threads (memory grows with it)")
-    ap.add_argument("--xmx", default="3g", help="Java heap cap; this machine has 8 GB")
+    ap.add_argument("--xmx", default="3g", help="Java heap cap; this machine has 8 GB (use e.g. 24g with --remote)")
+    ap.add_argument("--remote", default="", help="user@host: run Freerouting there over SSH (needs ~/jre/*/bin/java and ~/freerouting/freerouting-2.5.0.jar on the host)")
+    ap.add_argument("--ssh-key", default=str(Path.home() / ".ssh" / "openxen_vm"))
     args = ap.parse_args()
     out_dir = ROOT / "build" / "freerouting"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -75,11 +77,20 @@ def main() -> int:
         before = export_dsn(args.board, dsn)
         if ses.exists():
             ses.unlink()
-        cmd = [str(java), f"-Xmx{args.xmx}", "-jar", str(jar), "-de", str(dsn), "-do", str(ses), "-mp", str(args.passes), "-l", "en",
-               "-mt", str(args.threads), "--router.fanout.enabled=false", "--gui.enabled=false",
-               "--router.ignore_net_classes=Plane"]   # GND / +3.3VA live on the inner planes (vias by add_plane_vias.py)
+        fr_args = ["-mp", str(args.passes), "-l", "en", "-mt", str(args.threads), "--router.fanout.enabled=false", "--gui.enabled=false",
+                   "--router.ignore_net_classes=Plane"]   # GND / +3.3VA live on the inner planes (vias by add_plane_vias.py)
         t0 = time.time()
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=str(out_dir))
+        if args.remote:
+            ssh = ["ssh", "-i", args.ssh_key, "-o", "BatchMode=yes", args.remote]
+            scp = ["scp", "-i", args.ssh_key, "-o", "BatchMode=yes", "-q"]
+            subprocess.run(scp + [str(dsn), f"{args.remote}:~/freerouting/board.dsn"], check=True, timeout=600)
+            remote_cmd = ("cd ~/freerouting && rm -f board.ses && ~/jre/*/bin/java -Xmx%s -jar freerouting-2.5.0.jar -de board.dsn -do board.ses %s"
+                          % (args.xmx, " ".join(fr_args)))
+            r = subprocess.run(ssh + [remote_cmd], capture_output=True, text=True, timeout=args.timeout)
+            subprocess.run(scp + [f"{args.remote}:~/freerouting/board.ses", str(ses)], timeout=600)
+        else:
+            cmd = [str(java), f"-Xmx{args.xmx}", "-jar", str(jar), "-de", str(dsn), "-do", str(ses)] + fr_args
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=str(out_dir))
         print(f"freerouting: {time.time() - t0:.0f} s")
         lines = [l for l in (r.stdout + r.stderr).splitlines() if "INFO" in l and ("pass #" in l or "stage completed" in l or "Optimization" in l)]
         print(chr(10).join(l[:200] for l in lines[-6:]))
