@@ -118,8 +118,23 @@ class Sheet:
     libs: LibSymbols
     items: list = field(default_factory=list)
     used_libs: set = field(default_factory=set)
-    root_uuid: Q = field(default_factory=new_uuid)
+    root_uuid: Q = field(default_factory=new_uuid)   # this sheet's own uuid
     ref_counter: dict = field(default_factory=dict)
+    parent_path: str = ""                            # "" for the root sheet, "/<root-uuid>" for a sub-sheet
+    title: str = ""
+    comment: str = ""
+
+    @property
+    def path(self) -> str:
+        return self.parent_path + "/" + self.root_uuid.s
+
+    def add_subsheet(self, sub: "Sheet", name: str, filename: str, x: float, y: float, w: float, h: float, page: int) -> None:
+        """Place a sheet symbol in this (root) sheet referring to `sub` (written to `filename`)."""
+        self.items.append(["sheet", ["at", x, y], ["size", w, h], ["exclude_from_sim", "no"], ["in_bom", "yes"], ["on_board", "yes"], ["dnp", "no"],
+                           ["stroke", ["width", 0.1524], ["type", "solid"]], ["fill", ["color", 0, 0, 0, 0.0]], ["uuid", sub.root_uuid],
+                           ["property", Q("Sheetname"), Q(name), ["at", x, y - 0.7, 0], ["effects", ["font", ["size", 1.27, 1.27]], ["justify", "left", "bottom"]]],
+                           ["property", Q("Sheetfile"), Q(filename), ["at", x, y + h + 0.6, 0], ["effects", ["font", ["size", 1.27, 1.27]], ["justify", "left", "top"]]],
+                           ["instances", ["project", Q(self.project), ["path", Q(self.path), ["page", Q(str(page))]]]]])
 
     # symbol instances -------------------------------------------------------------
     def symbol(self, lib_id: str, x: float, y: float, rot: float, ref: str, value: str,
@@ -131,7 +146,7 @@ class Sheet:
             inst.append(["mirror", mirror])
         inst += [["unit", 1], ["exclude_from_sim", "no"], ["in_bom", "yes"], ["on_board", "yes"], ["dnp", "no"],
                  ["uuid", new_uuid()]]
-        props = [("Reference", ref, (x + 2.54, y - 1.27), False), ("Value", value, (x + 2.54, y + 1.27), hide_value),
+        props = [("Reference", ref, (x + 2.54, y - 1.27), ref.startswith("#")), ("Value", value, (x + 2.54, y + 1.27), hide_value),
                  ("Footprint", footprint, (x, y), True), ("Datasheet", "", (x, y), True), ("Description", "", (x, y), True)]
         for k, v in (extra or {}).items():
             props.append((k, v, (x, y), True))
@@ -142,7 +157,7 @@ class Sheet:
             inst.append(p)
         for num, *_ in self.libs.pins(lib_id):
             inst.append(["pin", Q(num), ["uuid", new_uuid()]])
-        inst.append(["instances", ["project", Q(self.project), ["path", Q("/" + self.root_uuid.s), ["reference", Q(ref)], ["unit", 1]]]])
+        inst.append(["instances", ["project", Q(self.project), ["path", Q(self.path), ["reference", Q(ref)], ["unit", 1]]]])
         self.items.append(inst)
         return inst
 
@@ -150,6 +165,20 @@ class Sheet:
         n = self.ref_counter.get("#PWR", 0) + 1
         self.ref_counter["#PWR"] = n
         inst = self.symbol(lib_id, x, y, rot, f"#PWR{n:03d}", value or lib_id.split(":")[1], hide_value=False)
+        # value text beyond the symbol graphic, away from the pin: GND hangs below, rails stand above
+        down = "GND" in lib_id
+        r = int(rot) % 360
+        if r == 0:
+            vx, vy = x, (y + 3.3) if down else (y - 3.3)
+        elif r == 180:
+            vx, vy = x, (y - 3.3) if down else (y + 3.3)
+        elif r == 90:
+            vx, vy = x - 4.6, y
+        else:
+            vx, vy = x + 4.6, y
+        for p in kids(inst, "property"):
+            if p[1].s == "Value":
+                p[2 + 1][1], p[2 + 1][2] = vx, vy   # (at vx vy 0)
         return inst
 
     def clone(self, template: list, dx: float, dy: float, ref: str, renames: dict[str, str] | None = None) -> list:
@@ -172,7 +201,7 @@ class Sheet:
                 u[1] = new_uuid()
         inst_node = kid(inst, "instances")
         if inst_node:
-            inst[inst.index(inst_node)] = ["instances", ["project", Q(self.project), ["path", Q("/" + self.root_uuid.s), ["reference", Q(ref)], ["unit", 1]]]]
+            inst[inst.index(inst_node)] = ["instances", ["project", Q(self.project), ["path", Q(self.path), ["reference", Q(ref)], ["unit", 1]]]]
         self.used_libs.add(sexp.q(inst, "lib_id"))
         self.items.append(inst)
         return inst
@@ -182,7 +211,7 @@ class Sheet:
         self.items.append(["wire", ["pts", ["xy", x1, y1], ["xy", x2, y2]], ["stroke", ["width", 0], ["type", "default"]], ["uuid", new_uuid()]])
 
     def glabel(self, name: str, x: float, y: float, rot: float = 0, shape: str = "input") -> None:
-        just = {0: "left", 90: "left", 180: "right", 270: "left"}[int(rot) % 360]
+        just = {0: "left", 90: "left", 180: "right", 270: "right"}[int(rot) % 360]
         self.items.append(["global_label", Q(name), ["shape", shape], ["at", x, y, rot],
                            ["effects", ["font", ["size", 1.27, 1.27]], ["justify", just]], ["uuid", new_uuid()],
                            ["property", Q("Intersheetrefs"), Q("${INTERSHEET_REFS}"), ["at", x, y, 0], ["effects", ["font", ["size", 1.27, 1.27]], ["hide", "yes"]]]])
@@ -204,9 +233,17 @@ class Sheet:
     # output ---------------------------------------------------------------------------
     def document(self, paper: str = "A2") -> list:
         doc = ["kicad_sch", ["version", SCH_VERSION], ["generator", Q("openxen")], ["generator_version", Q("0.1")],
-               ["uuid", self.root_uuid], ["paper", Q(paper)], self.libs.lib_symbols_node(self.used_libs)]
+               ["uuid", self.root_uuid], ["paper", Q(paper)]]
+        if self.title:
+            import datetime
+            tb = ["title_block", ["title", Q(self.title)], ["date", Q(datetime.date.today().isoformat())], ["rev", Q("0.1")], ["company", Q("openxen (GPL-3.0)")]]
+            if self.comment:
+                tb.append(["comment", 1, Q(self.comment)])
+            doc.append(tb)
+        doc.append(self.libs.lib_symbols_node(self.used_libs))
         doc += self.items
-        doc.append(["sheet_instances", ["path", Q("/"), ["page", Q("1")]]])
+        if not self.parent_path:
+            doc.append(["sheet_instances", ["path", Q("/"), ["page", Q("1")]]])
         doc.append(["embedded_fonts", "no"])
         return doc
 
@@ -266,7 +303,7 @@ def clone_region(doc: list, x0: float, y0: float, x1: float, y1: float, dx: floa
             ref = prop(new, "Reference")
             inst_node = kid(new, "instances")
             if inst_node:
-                new[new.index(inst_node)] = ["instances", ["project", Q(sheet.project), ["path", Q("/" + sheet.root_uuid.s), ["reference", Q(ref)], ["unit", 1]]]]
+                new[new.index(inst_node)] = ["instances", ["project", Q(sheet.project), ["path", Q(sheet.path), ["reference", Q(ref)], ["unit", 1]]]]
         sheet.add_raw(new)
         copied.append(new)
     return copied

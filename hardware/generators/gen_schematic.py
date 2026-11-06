@@ -34,13 +34,13 @@ OUT = ROOT / "hardware" / "kicad" / "openxen-m56" / "openxen-m56.kicad_sch"
 PROJECT = "openxen-m56"
 
 # Layout of our sheet (mm). HE60 cells are copied with their internal geometry intact.
-SENSOR_ORIGIN = (34.29, 30.48)      # first sensor cell anchor (HE1 position maps here); multiples of 1.27 keep pins on grid
+SENSOR_ORIGIN = (34.29, 35.56)      # first sensor cell anchor (HE1 position maps here); multiples of 1.27 keep pins on grid
 SENSOR_PITCH = (35.56, 33.02)       # cell pitch (multiples of 2.54); 8 columns x 7 rows = 56
 SENSOR_COLS = 8
-MUX_ORIGIN = (45.72, 279.4)
+MUX_ORIGIN = (45.72, 76.2)
 MUX_PITCH = 50.8
-CTRL_SHIFT = (0.0, 60.96)           # HE60 controller region (y 262..360) moves to y 323..421, below the mux row (multiple of 2.54)
-LED_ORIGIN = (419.1, 30.48)
+CTRL_SHIFT = (0.0, -231.14)         # HE60 controller region (y 262..360) moves to y 31..129 of its own A3 sheet (multiple of 2.54)
+LED_ORIGIN = (20.32, 25.4)
 
 
 def he60_cell_items(doc: list, ref: str, radius: tuple[float, float, float, float]) -> tuple[list, list]:
@@ -104,7 +104,7 @@ def stamp(sheet: ks.Sheet, items: list, dx: float, dy: float, ref_map: dict[str,
                     p[2] = Q(ref)
             add_lcsc(new)
             inst_node = kid(new, "instances")
-            new[new.index(inst_node)] = ["instances", ["project", Q(PROJECT), ["path", Q("/" + sheet.root_uuid.s), ["reference", Q(ref)], ["unit", 1]]]]
+            new[new.index(inst_node)] = ["instances", ["project", Q(PROJECT), ["path", Q(sheet.path), ["reference", Q(ref)], ["unit", 1]]]]
         sheet.add_raw(new)
 
 
@@ -138,20 +138,32 @@ def main() -> int:
     libs.add_from_schematic(he)
     libs.add_from_library(KICAD_SYM / "Device.kicad_sym", "Device", ["LED_ARGB", "R", "C"])
     libs.add_from_library(KICAD_SYM / "power.kicad_sym", "power", ["+5V", "+3.3V", "GND"])
+    libs.add_from_library(KICAD_SYM / "Connector.kicad_sym", "Connector", ["TestPoint"])
     drv = PARTS["parts"]["led_driver"]
     libs.add_from_library(KICAD_SYM / drv["symbol_lib"], drv["symbol_lib"].split(".")[0], [drv["symbol"]])
+    # KiCad stacks duplicate power pins (PGND 12 on 5, GND 49 on 48) as hidden passive pins, which a wire
+    # does not connect; make them ordinary visible pins so the bus wire picks them up.
+    drv_sym = libs.defs[f"{drv['symbol_lib'].split('.')[0]}:{drv['symbol']}"]
+    for unit in kids(drv_sym, "symbol"):
+        for pin in kids(unit, "pin"):
+            if kid(pin, "name")[1].s in ("PGND", "GND", "PVCC", "AGND") and kid(pin, "hide"):
+                pin.remove(kid(pin, "hide"))
     # HE60's embedded symbols become ours (hardware/kicad/lib/openxen.kicad_sym, GPL-3.0, see provenance)
     for old in ("HE60:MT9102ET", "HE60:AT32F405RxT7"):
         d = libs.defs.pop(old)
         d[1] = Q(old.replace("HE60:", "openxen:"))
         libs.defs[old.replace("HE60:", "openxen:")] = d
-    sheet = ks.Sheet(PROJECT, libs)
+    root = ks.Sheet(PROJECT, libs, title="openxen-m56 module", comment="56-key Hall-effect hex module; HE60 v2.1 / libhmk derived")
+    sub = lambda title, comment: ks.Sheet(PROJECT, libs, parent_path=root.path, title=title, comment=comment)
+    sh_ctrl = sub("openxen-m56 - Controller", "AT32F405, USB-C, power, debug: HE60 v2.1 block, verbatim")
+    sh_sens = sub("openxen-m56 - Sensors", "56x GH39FKSW linear Hall sensors, one cell per key (HE60 cell)")
+    sh_mux = sub("openxen-m56 - Multiplexers", "7x SN74LV4051A, 8 keys each, shared select lines")
+    sh_led = sub("openxen-m56 - LED matrix", "IS31FL3733, 56x MHT151RGBCT common-anode RGB (anode->CS, cathodes->SW)")
 
     # ---- 1. sensor cells (HE60 HE1 cell: sensor, two caps, power symbols, label, wires)
     he1, cell = he60_cell_items(he, "HE1", (15.0, 3.0, 15.0, 11.0))  # x 21.59..46.99, y 74.93..86.36 (next cell starts at 96.52)
     hx, hy, _ = sexp.at(he1)
     cell_refs = sorted({prop(i, "Reference") for i in cell if i[0] == "symbol"})
-    print("HE1 cell symbols:", cell_refs, "items:", len(cell))
     caps = [r for r in cell_refs if r.startswith("C")]
     for k in sorted(SPEC["keys"], key=lambda k: k["id"]):
         n = k["id"]
@@ -161,29 +173,26 @@ def main() -> int:
         ref_map = {"HE1": f"HE{n}"}
         for i, c in enumerate(caps):
             ref_map[c] = f"C{n}" if i == 0 else f"CF{n}"
-        stamp(sheet, cell, dx, dy, ref_map, {"HE1": f"HE{n}"})
+        stamp(sh_sens, cell, dx, dy, ref_map, {"HE1": f"HE{n}"})
+    sh_sens.text("Sensor cells: HE60 cell (100 nF decoupling, 4.7 nF output filter) x 56. Label HEn = key n (Lumatone .ltn index).", 20.32, 22.86, 2.0)
 
-    # ---- 2. mux cells (HE60 AM1 cell)
-    am1, mcell = he60_cell_items(he, "AM2", (14.0, 31.0, 16.0, 25.0))  # AM2: all 8 inputs labelled; x -12.7..12.7 plus VCC cap at -10.16, y -30.48..24.13
+    # ---- 2. mux cells (HE60 AM2 cell)
+    am1, mcell = he60_cell_items(he, "AM2", (14.0, 31.0, 16.0, 25.0))
     mx, my, _ = sexp.at(am1)
     mrefs = sorted({prop(i, "Reference") for i in mcell if i[0] == "symbol"})
-    mlabels = sorted({i[1].s for i in mcell if i[0] == "global_label"})
-    print("AM2 cell symbols:", mrefs, "labels:", mlabels)
-    he_in = [l for l in mlabels if l.startswith("HE")]
     matrix = SPEC["mux"]["libhmk_matrix"]  # [select][input] -> key id + 1
+    he_in_by_channel = he60_mux_channel_labels(he, am1, mcell, libs)
     for m in range(7):
         label_map = {"MUX_OUT_2": f"MUX_OUT_{m + 1}"}
-        # HE60's AM1 inputs HEa..HEh correspond to mux channels 0..7 in label order;
-        # we map channel s -> key id from our matrix column m.
-        he_in_by_channel = he60_mux_channel_labels(he, am1, mcell, libs)
-        for s in range(8):
-            kid_ = matrix[s][m]
-            label_map[he_in_by_channel[s]] = f"HE{kid_ - 1}" if kid_ else f"NC_MUX{m}_{s}"
+        for s_ in range(8):
+            kid_ = matrix[s_][m]
+            label_map[he_in_by_channel[s_]] = f"HE{kid_ - 1}" if kid_ else f"NC_MUX{m}_{s_}"
         ref_map = {r: (f"AM{m}" if r == "AM2" else f"CM{m}") for r in mrefs if not r.startswith("#")}
-        stamp(sheet, mcell, MUX_ORIGIN[0] + m * MUX_PITCH - mx, MUX_ORIGIN[1] - my, ref_map, label_map)
+        stamp(sh_mux, mcell, MUX_ORIGIN[0] + m * MUX_PITCH - mx, MUX_ORIGIN[1] - my, ref_map, label_map)
+    sh_mux.text("Mux m serves keys 8m..8m+7 (channel = key - 8m). Select lines PC1..PC3, outputs MUX_OUT_1..7 -> PA3..PA7, PC4, PC5 (HE60 pins).", 20.32, 22.86, 2.0)
 
-    # ---- 3. controller block: everything of HE60 below y = 240 except key/mux cells
-    ctrl = ks.clone_region(he, -1000, 262.0, 5000, 5000, CTRL_SHIFT[0], CTRL_SHIFT[1], sheet,
+    # ---- 3. controller block: everything of HE60 below y = 262 except key/mux cells, verbatim
+    ctrl = ks.clone_region(he, -1000, 262.0, 5000, 5000, CTRL_SHIFT[0], CTRL_SHIFT[1], sh_ctrl,
                            skip_lib_ids=("Mechanical:", "HE60:MT9102ET", "4xxx:4051", "openxen:MT9102ET"))
     for item in ctrl:
         if item[0] == "symbol":
@@ -196,18 +205,27 @@ def main() -> int:
             if lid[1].s.startswith("HE60:"):
                 lid[1] = Q(lid[1].s.replace("HE60:", "openxen:"))
             add_lcsc(item)
-    sheet.used_libs = {("openxen:" + l.split(":", 1)[1]) if l.startswith("HE60:") else l for l in sheet.used_libs}
-    patch_controller(sheet, libs)
-    missing = [l for l in sheet.used_libs if l not in libs.defs]
-    if missing:
-        raise RuntimeError(f"instances without embedded lib symbol: {missing}")
-    print("controller items copied:", len(ctrl))
+    sh_ctrl.used_libs = {("openxen:" + l.split(":", 1)[1]) if l.startswith("HE60:") else l for l in sh_ctrl.used_libs}
+    patch_controller(sh_ctrl, libs)
+    sh_ctrl.text("Copied from HE60 v2.1 (GPL-3.0). Changes: F1 1 A fuse, J2 not populated, PB6/PB7 = LED driver I2C, PC0 = LED_SDB, MUX_OUT_8/9 unused.", 20.32, 22.86, 2.0)
+    gen_test_points(sh_ctrl, libs)
 
     # ---- 4. LED sheet
-    gen_led_sheet(sheet, libs)
+    gen_led_sheet(sh_led, libs)
 
-    sheet.write(OUT, paper="A1")
-    print(f"wrote {OUT.relative_to(ROOT)}: {len(sheet.items)} items")
+    # ---- 5. root sheet with the four sheet symbols
+    root.text("openxen-m56: 56-key Hall-effect hex keyboard module. One of five identical modules; each is a USB device.", 20.32, 20.32, 2.0)
+    root.text("Sources: layout/module.json (geometry, mux matrix, LED matrix), hardware/parts.json (LCSC parts). Generated by hardware/generators/gen_schematic.py.", 20.32, 24.13, 1.5)
+    pages = [(sh_ctrl, "Controller", "controller.kicad_sch"), (sh_sens, "Sensors", "sensors.kicad_sch"),
+             (sh_mux, "Multiplexers", "muxes.kicad_sch"), (sh_led, "LED matrix", "leds.kicad_sch")]
+    for i, (sh, name, fn) in enumerate(pages):
+        root.add_subsheet(sh, name, fn, 25.4 + i * 50.8, 40.64, 38.1, 25.4, i + 2)
+        for lid in sh.used_libs:
+            if lid not in libs.defs:
+                raise RuntimeError(f"{name}: instance without embedded lib symbol: {lid}")
+        sh.write(OUT.parent / fn, paper="A3")
+    root.write(OUT, paper="A4")
+    print(f"wrote {OUT.relative_to(ROOT)} + 4 sub-sheets: ctrl {len(sh_ctrl.items)}, sensors {len(sh_sens.items)}, muxes {len(sh_mux.items)}, leds {len(sh_led.items)} items")
     return 0
 
 
@@ -264,10 +282,38 @@ def patch_controller(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
             continue
         keep.append(item)
     sheet.items = keep
+    pin_rot = {name: prot for _num, name, _px, _py, prot in libs.pins(sexp.q(mcu, "lib_id"))}
+    inst_rot = sexp.at(mcu)[2]
     for pin, label in want.items():
         x, y = targets[pin]
-        rot = 0 if x > sexp.at(mcu)[0] else 180
+        rot = (pin_rot[pin] + 180 + inst_rot) % 360   # label points away from the body (top pins: 90)
         sheet.glabel(label, x, y, rot, "bidirectional" if label != "LED_SDB" else "output")
+
+
+TEST_POINTS = ["MUX_OUT_1", "MUX_OUT_2", "MUX_OUT_3", "MUX_OUT_4", "MUX_OUT_5", "MUX_OUT_6", "MUX_OUT_7",
+               "MUX_SELECT_0", "MUX_SELECT_1", "MUX_SELECT_2", "+3.3VA", "+3.3V", "+5V", "GND", "LED_SDA", "LED_SCL"]
+
+
+def gen_test_points(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
+    """DFT: 1 mm test pads on the bottom side for the signals a bring-up needs (TP1..TP16).
+
+    Two rows of eight; the pad symbol is rotated so its pin points left and the net label
+    (or power symbol) hangs horizontally off the pin end.
+    """
+    x0, y0, dx, dy = 60.96, 157.48, 38.1, 12.7
+    sheet.text("Test points (bottom side, 1 mm pads, 2.54 mm pitch): mux outputs, select lines, rails, I2C. SWD via J3 (TC2030).", 30.48, y0 - 10.16, 1.5)
+    for i, net in enumerate(TEST_POINTS):
+        x, y = x0 + (i % 8) * dx, y0 + (i // 8) * dy
+        tp = sheet.symbol("Connector:TestPoint", x, y, 270, f"TP{i + 1}", net, "TestPoint:TestPoint_Pad_D1.0mm", hide_value=True)
+        kid(tp, "in_bom")[1] = "no"
+        px, py = libs.pin_points(tp)["1"]   # the pin's connection point is the symbol origin; the pad circle sits to the right
+        ref = next(pr for pr in kids(tp, "property") if pr[1].s == "Reference")
+        kid(ref, "at")[1:] = [x + 5.08, y - 1.9, 90]   # property angle is relative to the symbol: 270 + 90 = horizontal, above the pad
+        if net in ("+3.3V", "+5V", "+3.3VA", "GND"):   # power symbol standing on / hanging off the wire end
+            sheet.wire(px, py, px - 2.54, py)
+            sheet.power(f"power:{net}", px - 2.54, py, 0)
+        else:
+            sheet.glabel(net, px, py, 180, "passive")
 
 
 def gen_led_sheet(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
@@ -282,7 +328,7 @@ def gen_led_sheet(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
     lib_id = f"{drv['symbol_lib'].split('.')[0]}:{drv['symbol']}"
     ox, oy = LED_ORIGIN
     sheet.text("LED matrix (IS31FL3733, datasheet Fig. 2 RGB): anode -> CSx source, cathodes -> SWy sinks. 4 groups x 14 keys.", ox, oy - 7.62, 1.5)
-    u = sheet.symbol(lib_id, ox + 50.8, oy + 81.28, 0, "U10", drv["value"], drv["footprint"], {"LCSC Part #": drv["lcsc"], "MPN": drv.get("mpn", "")})
+    u = sheet.symbol(lib_id, ox + 50.8, oy + 66.04, 0, "U10", drv["value"], drv["footprint"], {"LCSC Part #": drv["lcsc"], "MPN": drv.get("mpn", "")})
     pts = libs.pin_points(u)
     names = {num: name for num, name, *_ in libs.pins(lib_id)}
     ux, uy = sexp.at(u)[0], sexp.at(u)[1]
@@ -312,8 +358,8 @@ def gen_led_sheet(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
         elif name in ("RSET", "R_EXT", "REXT"):
             sheet.glabel("LED_REXT", x, y, side, "passive")
         elif name == "VIO":
-            dx = 2.54 if x > ux else -2.54
-            sheet.power("power:+3.3V", x + dx, y, 270 if dx > 0 else 90)
+            dx = 5.08 if x > ux else -5.08
+            sheet.power("power:+3.3V", x + dx, y, 90 if dx < 0 else 270)
             sheet.wire(x, y, x + dx, y)
         elif name in ("GND", "AGND", "PGND", "EP"):
             gnd_pins.append((x, y))
@@ -323,23 +369,46 @@ def gen_led_sheet(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
             sheet.no_connect(x, y)
     # Pins on the left/right columns sit 2.54 mm apart, so power symbols go outward horizontally;
     # top/bottom pins get them vertically.
-    for x, y in gnd_pins:
-        if abs(x - ux) > abs(y - uy):      # side pin
-            dx = 2.54 if x > ux else -2.54
-            sheet.power("power:GND", x + dx, y, 0)
-            sheet.wire(x, y, x + dx, y)
-        else:
-            dy = 2.54 if y >= uy else -2.54
-            sheet.power("power:GND", x, y + dy, 0 if dy > 0 else 180)
-            sheet.wire(x, y, x, y + dy)
-    for x, y, name in p5_pins:
-        if abs(x - ux) > abs(y - uy):
-            dx = 2.54 if x > ux else -2.54
-            sheet.power("power:+5V", x + dx, y, 0)
-            sheet.wire(x, y, x + dx, y)
-        else:
-            sheet.power("power:+5V", x, y - 2.54, 0)
-            sheet.wire(x, y, x, y - 2.54)
+    def bus_power(pins: list[tuple[float, float]], lib: str, below: bool) -> None:
+        """Join pins of one power net with a bus drawn as end-to-end segments (one per pin pair,
+        junction at every shared endpoint) and a single power symbol at one end."""
+        pins = sorted(set(pins))
+        side = [(x, y) for x, y in pins if abs(x - ux) > abs(y - uy)]
+        vert = sorted((x, y) for x, y in pins if (x, y) not in side)
+        for left in (True, False):
+            grp = sorted(((x, y) for x, y in side if (x < ux) == left), key=lambda p: p[1])
+            if not grp:
+                continue
+            dx = -5.08 if left else 5.08
+            xb = grp[0][0] + dx
+            for x, y in grp:
+                sheet.wire(x, y, xb, y)
+            for (x1, y1), (x2, y2) in zip(grp, grp[1:]):
+                sheet.wire(xb, y1, xb, y2)
+            for x, y in grp[1:-1]:
+                sheet.junction(xb, y)
+            end_y = grp[-1][1] if below else grp[0][1]
+            sheet.wire(xb, end_y, xb, end_y + (2.54 if below else -2.54))
+            sheet.power(lib, xb, end_y + (2.54 if below else -2.54), 0)
+            if len(grp) > 1:
+                sheet.junction(xb, end_y)
+        if not vert:
+            return
+        dy = 2.54 if below else -2.54
+        yb = vert[0][1] + dy
+        for x, y in vert:
+            sheet.wire(x, y, x, yb)
+        for (x1, _), (x2, _) in zip(vert, vert[1:]):
+            sheet.wire(x1, yb, x2, yb)
+        for x, _ in vert[1:-1]:
+            sheet.junction(x, yb)
+        xm = vert[0][0]
+        sheet.wire(xm, yb, xm, yb + dy)
+        sheet.power(lib, xm, yb + dy, 0)
+        if len(vert) > 1:
+            sheet.junction(xm, yb)
+    bus_power(gnd_pins, "power:GND", below=True)
+    bus_power([(x, y) for x, y, _ in p5_pins], "power:+5V", below=False)
 
     def two_terminal(ref: str, part_key: str, x: float, y: float, top: str, bottom: str, lib: str = "Device:R") -> None:
         part = PARTS["parts"][part_key]
@@ -357,7 +426,7 @@ def gen_led_sheet(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
             else:
                 sheet.glabel(net, pt[0], pt[1], 90 if pt == top_pt else 270, "passive")
 
-    sx, sy = ox + 111.76, oy + 15.24
+    sx, sy = ox + 10.16, oy + 157.48
     col = 0
     def nxt() -> float:
         nonlocal col
@@ -381,12 +450,15 @@ def gen_led_sheet(sheet: ks.Sheet, libs: ks.LibSymbols) -> None:
     # LEDs: 56 common-anode RGB (Device:LED_ARGB: 1=A, 2=RK, 3=GK, 4=BK)
     led = PARTS["parts"]["led_rgb"]
     L = SPEC["led"]
-    cols = 8
+    cols = 7
     for k in sorted(SPEC["keys"], key=lambda k: k["id"]):
         n = k["id"]
         c_, r_ = n % cols, n // cols
-        x, y = ox + c_ * 30.48, oy + 152.4 + r_ * 27.94
-        d = sheet.symbol("Device:LED_ARGB", x, y, 0, f"D{n}", led["value"], led["footprint"], {"LCSC Part #": led["lcsc"]})
+        x, y = ox + 142.24 + c_ * 38.1, oy + 25.4 + r_ * 27.94
+        d = sheet.symbol("Device:LED_ARGB", x, y, 0, f"D{n}", led["value"], led["footprint"], {"LCSC Part #": led["lcsc"]}, hide_value=True)
+        for pr in kids(d, "property"):
+            if pr[1].s == "Reference":
+                kid(pr, "at")[1], kid(pr, "at")[2] = x, y - 9.65   # body top is y - 7.62
         p = libs.pin_points(d)
         grp, cs = L["key_group"][str(n)], L["key_cs"][str(n)]
         ax, ay = p["1"]

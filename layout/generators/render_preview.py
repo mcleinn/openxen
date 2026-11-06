@@ -36,8 +36,7 @@ def main() -> int:
             ax.add_patch(Circle((x + g["x"], y + g["y"]), g["d"] / 2, fill=False, ec="gray", lw=0.5))
         ax.add_patch(Rectangle((x - 1.5, y - 0.75), 3.0, 1.5, fill=True, fc="black", alpha=0.6))  # sensor
         led = uc["led"]
-        ax.add_patch(Rectangle((x + led["x"] - led["cutout_w"] / 2, y + led["y"] - led["cutout_h"] / 2),
-                               led["cutout_w"], led["cutout_h"], fill=False, ec="red", lw=0.6))
+        ax.add_patch(Circle((x + led["x"], y + led["y"]), led["hole_d"] / 2, fill=False, ec="red", lw=0.6))
         ax.text(x, y + 4.5, str(k["id"]), ha="center", va="center", fontsize=5)
     for m in s["mux"]["groups"]:
         cx, cy = m["centroid"]

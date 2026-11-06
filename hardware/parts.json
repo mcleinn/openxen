@@ -44,6 +44,6 @@
     "IS31FL3733": "led_driver", "MHT151RGBCT": "led_rgb",
     "100n": "c_100n", "4.7n": "c_4n7", "470n": "c_470n", "22u": "c_22u", "1u": "c_1u", "2.2u": "c_2u2", "10u": "c_10u", "30p": "c_30p",
     "2k": "r_2k", "5.1k": "r_5k1", "10k": "r_10k", "12k": "r_12k", "20k": "r_20k", "100k": "r_100k", "51": "r_51", "22": "r_20", "20": "r_20",
-    "Mechanical:MountingHole_Pad": null, "H60": null, "TC2030": null
+    "Mechanical:MountingHole_Pad": null, "Connector:TestPoint": null, "H60": null, "TC2030": null
   }
 }

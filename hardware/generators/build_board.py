@@ -2,10 +2,16 @@
 """Rebuild the whole openxen-m56 board from the sources, deterministically (system Python).
 
 Steps: project files -> schematic -> ERC -> netlist -> board with key field -> HE60 controller
-blocks -> muxes and LED driver -> cell routing -> silkscreen -> DRC summary -> renders.
+blocks -> muxes and LED driver -> cell routing -> silkscreen -> [planes -> Freerouting ->
+bottom pour, with --route] -> DRC summary.
+
+Routing is a pipeline step so a rebuild never silently loses it: `--route` re-runs the
+planes + Freerouting + bottom-pour chain (takes long); without it the board stops after the
+scripted cell routing (fast, for geometry/placement iterations).
 """
 from __future__ import annotations
 
+import argparse
 import json
 import subprocess
 import sys
@@ -30,6 +36,10 @@ def run(cmd: list[str], label: str) -> None:
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--route", action="store_true", help="planes + Freerouting + bottom pour after the cell routing")
+    ap.add_argument("--passes", type=int, default=40)
+    args = ap.parse_args()
     BUILD.mkdir(exist_ok=True)
     run([sys.executable, str(G / "gen_project.py")], "project")
     run([sys.executable, str(G / "gen_schematic.py")], "schematic")
@@ -40,6 +50,10 @@ def main() -> int:
     run([KPY, str(G / "place_rest.py"), "--board", str(PCB)], "muxes + LED driver")
     run([KPY, str(G / "route_cell.py"), "--board", str(PCB), "--all"], "cell routing")
     run([KPY, str(G / "tidy_silk.py"), "--board", str(PCB)], "silkscreen")
+    if args.route:
+        run([KPY, str(G / "add_zones.py"), "--board", str(PCB)], "planes (GND In1, +3.3VA In2)")
+        run([KPY, str(G / "freeroute_board.py"), "--board", str(PCB), "--passes", str(args.passes)], "freerouting")
+        run([KPY, str(G / "add_zones.py"), "--board", str(PCB), "--bottom-pour"], "bottom GND pour + refill")
     run([KCLI, "pcb", "drc", "--output", str(BUILD / "drc.json"), "--format", "json", "--schematic-parity", "--severity-all", str(PCB)], "drc")
     d = json.loads((BUILD / "drc.json").read_text(encoding="utf-8"))
     import collections

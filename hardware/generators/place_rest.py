@@ -57,8 +57,11 @@ def main() -> int:
     put(b, "C218", x0 + 6.8, y0 - 5.0, 90)          # 22u bulk
     for i, r in enumerate(["R10", "R11", "R12", "R13", "R14", "R15", "R16"]):
         put(b, r, x0 + 9.0 + i * 2.0, y0 + 2.0, 90)
+    # test points: one row below the LDO block, bottom side (TP1..TP16)
+    for i in range(16):
+        put(b, f"TP{i + 1}", 61.0 + i * 2.54, 19.3, 0)
     pcbnew.SaveBoard(args.board, b)
-    print("placed muxes and LED driver block")
+    print("placed muxes, LED driver block and test points")
     return 0
 
 
