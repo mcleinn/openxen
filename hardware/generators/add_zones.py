@@ -53,7 +53,7 @@ def main() -> int:
         add_zone(b, "GND", pcbnew.B_Cu, verts, clearance=0.3, name="GND_bottom", priority=0)
     filler = pcbnew.ZONE_FILLER(b)
     filler.Fill(b.Zones())
-    pcbnew.SaveBoard(args.board, b)
+    pcbnew.SaveBoard(args.board, b, True)
     print("zones:", [(z.GetZoneName(), z.GetNetname(), b.GetLayerName(z.GetFirstLayer())) for z in b.Zones()])
     return 0
 

@@ -121,7 +121,7 @@ def main() -> int:
         for t in leaf:
             b.Remove(t)
             dropped += 1
-    pcbnew.SaveBoard(args.board, b)
+    pcbnew.SaveBoard(args.board, b, True)
     print(f"moved {moved} footprints, copied {tracks} tracks and {vias} vias, skipped {skipped} items on unknown nets, dropped {dropped} floating stubs")
     return 0
 

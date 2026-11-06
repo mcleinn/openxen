@@ -60,7 +60,7 @@ def main() -> int:
     # test points: one row below the LDO block, bottom side (TP1..TP16)
     for i in range(16):
         put(b, f"TP{i + 1}", 61.0 + i * 2.54, 19.3, 0)
-    pcbnew.SaveBoard(args.board, b)
+    pcbnew.SaveBoard(args.board, b, True)
     print("placed muxes, LED driver block and test points")
     return 0
 

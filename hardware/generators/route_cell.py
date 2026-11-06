@@ -148,7 +148,7 @@ def main() -> int:
     keys = [k["id"] for k in SPEC["keys"]] if args.all else [int(x) for x in args.keys.split(",")]
     for n in keys:
         r.route_key(n)
-    pcbnew.SaveBoard(args.board, board)
+    pcbnew.SaveBoard(args.board, board, True)
     print(f"routed {len(keys)} cell(s): {r.added} tracks/vias added")
     return 0
 

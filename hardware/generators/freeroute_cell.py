@@ -68,7 +68,7 @@ def main() -> int:
     out_dir = ROOT / "build" / "freerouting"
     out_dir.mkdir(parents=True, exist_ok=True)
     cell_pcb = out_dir / f"cell{n}.kicad_pcb"
-    pcbnew.SaveBoard(str(cell_pcb), board)
+    pcbnew.SaveBoard(str(cell_pcb), board, True)
     print("cell board:", len(by_ref), "footprints,", len(nets), "nets")
 
     dsn = out_dir / f"cell{n}.dsn"
@@ -90,7 +90,7 @@ def main() -> int:
     ok = pcbnew.ImportSpecctraSES(board, str(ses))
     print("SES import:", ok, "tracks now:", len(list(board.GetTracks())))
     out = out_dir / f"cell{n}-freerouted.kicad_pcb"
-    pcbnew.SaveBoard(str(out), board)
+    pcbnew.SaveBoard(str(out), board, True)
     print("wrote", out)
     return 0
 

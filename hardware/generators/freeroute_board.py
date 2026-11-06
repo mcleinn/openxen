@@ -5,7 +5,8 @@ existing tracks, vias and zones. Run with KiCad's Python.
     python.exe hardware/generators/freeroute_board.py --board <pcb> [--passes 40]
 
 Writes build/freerouting/board.dsn / board.ses and imports the session back into the board.
-Net-class widths come from the project's net classes (exported into the DSN).
+Net-class widths come from the project's net classes (exported into the DSN; the board must be
+loaded with its .kicad_pro next to it). Pre-existing wires are exported as "protect" (fixed).
 """
 from __future__ import annotations
 
@@ -34,7 +35,12 @@ def main() -> int:
     before = len(list(board.GetTracks()))
     if not pcbnew.ExportSpecctraDSN(board, str(dsn)):
         raise SystemExit("DSN export failed")
-    print("DSN:", dsn.stat().st_size, "bytes; tracks before:", before)
+    # Existing tracks (cell routing, HE60 blocks) are reviewed work: mark them "protect" so
+    # Freerouting treats them as user-fixed and routes only the open ratsnest around them.
+    txt = dsn.read_text(encoding="utf-8")
+    fixed = txt.count("(type route)")
+    dsn.write_text(txt.replace("(type route)", "(type protect)"), encoding="utf-8")
+    print("DSN:", dsn.stat().st_size, "bytes; tracks before:", before, "; wires protected:", fixed)
     java = next(TOOLS.glob("jre25/*/bin/java.exe"))
     jar = TOOLS / "freerouting-2.5.0.jar"
     if ses.exists():
@@ -52,7 +58,7 @@ def main() -> int:
     if not pcbnew.ImportSpecctraSES(board, str(ses)):
         raise SystemExit("SES import failed")
     after = len(list(board.GetTracks()))
-    pcbnew.SaveBoard(args.board, board)
+    pcbnew.SaveBoard(args.board, board, True)
     print("tracks after import:", after, "(+%d)" % (after - before))
     return 0
 

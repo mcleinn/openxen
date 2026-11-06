@@ -52,17 +52,21 @@ def write_tables() -> None:
         "schematic": {"legacy_lib_dir": "", "legacy_lib_list": []},
         "sheets": [], "text_variables": {}}
     def cls(name, w, clr=0.2, via=0.6, drill=0.3, dpw=None, dpg=None):
-        return {"name": name, "clearance": clr, "track_width": w, "via_diameter": via, "via_drill": drill,
-                "diff_pair_width": dpw or w, "diff_pair_gap": dpg or 0.2, "microvia_diameter": 0.3, "microvia_drill": 0.1,
+        # KiCad 9 (net_settings version 4) ignores a class without "priority" / "diff_pair_via_gap":
+        # Default has the lowest priority (INT_MAX), the others take their list position.
+        return {"name": name, "priority": 2147483647 if name == "Default" else len(classes), "clearance": clr, "track_width": w,
+                "via_diameter": via, "via_drill": drill,
+                "diff_pair_width": dpw or w, "diff_pair_gap": dpg or 0.2, "diff_pair_via_gap": 0.25, "microvia_diameter": 0.3, "microvia_drill": 0.1,
                 "bus_width": 12, "wire_width": 6, "line_style": 0, "pcb_color": "rgba(0, 0, 0, 0.000)", "schematic_color": "rgba(0, 0, 0, 0.000)"}
     # Widths from the current budget (hardware/README.md "Net classes"):
-    classes = [cls("Default", 0.25),                      # digital: I2C, selects, SWD, mux outputs
-               cls("Analog", 0.25),                       # HEn sensor outputs: keep short, over the GND plane
-               cls("Power5V", 0.8, via=0.8, drill=0.4),   # VBUS/+5V: up to ~0.9 A (sensors via LDO + LED matrix)
-               cls("Power3V3", 0.5, via=0.6, drill=0.3),  # +3.3V and +3.3VA feeders (pours carry the bulk)
-               cls("LED_SW", 0.5, via=0.6, drill=0.3),    # IS31FL3733 sinks: up to 14 x 42 mA peak per line
-               cls("LED_CS", 0.3),                        # IS31FL3733 sources: one LED, <= 42 mA peak
-               cls("USB", 0.25, dpw=0.25, dpg=0.2)]       # HE60 geometry copied; short run
+    classes: list = []
+    classes.append(cls("Default", 0.25))                      # digital: I2C, selects, SWD, mux outputs
+    classes.append(cls("Analog", 0.25))                       # HEn sensor outputs: keep short, over the GND plane
+    classes.append(cls("Power5V", 0.8, via=0.8, drill=0.4))   # VBUS/+5V: up to ~0.9 A (sensors via LDO + LED matrix)
+    classes.append(cls("Power3V3", 0.5, via=0.6, drill=0.3))  # +3.3V and +3.3VA feeders (pours carry the bulk)
+    classes.append(cls("LED_SW", 0.5, via=0.6, drill=0.3))    # IS31FL3733 sinks: up to 14 x 42 mA peak per line
+    classes.append(cls("LED_CS", 0.3))                        # IS31FL3733 sources: one LED, <= 42 mA peak
+    classes.append(cls("USB", 0.25, dpw=0.25, dpg=0.2))       # HE60 geometry copied; short run
     patterns = [{"pattern": "HE*", "netclass": "Analog"}, {"pattern": "/HE*", "netclass": "Analog"},
                 {"pattern": "+5V", "netclass": "Power5V"}, {"pattern": "VBUS", "netclass": "Power5V"},
                 {"pattern": "+3.3V", "netclass": "Power3V3"}, {"pattern": "+3.3VA", "netclass": "Power3V3"},

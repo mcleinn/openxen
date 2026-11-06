@@ -134,7 +134,7 @@ def main() -> int:
             for p in pads:
                 p.SetNet(ni)
                 assigned += 1
-    pcbnew.SaveBoard(str(bp), board)
+    pcbnew.SaveBoard(str(bp), board, True)   # True: never rewrite the .kicad_pro (net classes, rules)
     print(f"{bp.name}: {len(comps)} components, {created} footprints created, {assigned} pads netted, {len(existing)} nets")
     if missing_pads:
         print("  pads not found:", missing_pads[:20])
