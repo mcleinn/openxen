@@ -47,9 +47,9 @@ UNIT_CELL = {
                "notes": "Lekker Tikken: no centre post, no metal pins; verified on photos docs/input/lekker-2.jpg"},
     "sensor": {"part": "MT9102ET", "package": "SOT-23", "layer": "B.Cu", "x": 0.0, "y": 0.0, "rot": -90,
                "notes": "centred under the stem magnet, as HE60 and Wooting 60HE; rotation as HE60 (sensing face up through the PCB)"},
-    "led": {"part": "SK6812MINI-E (variant A) / reverse-mount RGB (variant B)", "layer": "B.Cu",
-            "x": 0.0, "y": -4.9, "cutout_w": 3.7, "cutout_h": 3.0,
-            "notes": "reverse-mount in a PCB cutout under the Tikken's north lens (MX LED position 5.08 mm north; Wooting photo ~4.7 mm). Cutout per SK6812MINI-E datasheet 'Recommended dimensions for PCB' — confirm before layout"},
+    "led": {"part": "MHT151RGBCT (reverse-mount 1206 RGB, common anode)", "footprint": "openxen:LED_RGB_1206R_MHT151RGBCT", "layer": "B.Cu",
+            "x": 0.0, "y": -5.08, "hole_d": 2.1,
+            "notes": "MX LED position, 5.08 mm north of the switch centre (marbastlib LED_MX_1206R add-on geometry, made for this LED: NPTH 2.1 mm, 4 pads 0.7x0.8 at (+-1.55, +-0.55)); Wooting 60HE photo shows ~4.7-5.1 mm"},
     "passives": [
         {"ref": "C_dec", "value": "100n", "package": "0402", "net": "+3V3A", "notes": "sensor decoupling, within 2 mm of the sensor VDD pin"},
         {"ref": "C_out", "value": "4n7", "package": "0402", "net": "sensor OUT -> GND", "notes": "as HE60; keep at the sensor"},
@@ -115,6 +115,25 @@ def main() -> int:
     for k in keys:
         matrix[k["mux_channel"]][k["mux"]] = k["id"] + 1
 
+    # LED matrix for the IS31FL3733: CS1..CS16 are current SOURCES (LED anodes), SW1..SW12 are
+    # the scanned current SINKS (LED cathodes, 1/12 duty). A common-anode RGB therefore uses one
+    # CS line and three SW lines -> 4 cathode groups (3 SW each) x up to 16 anode lines = 64 RGB.
+    # Groups = 4 vertical stripes of the key field (x order), 14 keys each; within a stripe the
+    # keys are numbered top-to-bottom and that number is the CS line, so CS lines run roughly
+    # horizontally and SW lines vertically.
+    by_x = sorted(keys, key=lambda k: (k["x"], k["y"]))
+    key_group, key_cs, groups = {}, {}, []
+    for g in range(4):
+        stripe = sorted(by_x[g * 14:(g + 1) * 14], key=lambda k: (k["y"], k["x"]))
+        groups.append([k["id"] for k in stripe])
+        for i, k in enumerate(stripe):
+            key_group[str(k["id"])] = g
+            key_cs[str(k["id"])] = i
+    sw_lines = {str(g): {"R": g * 3, "G": g * 3 + 1, "B": g * 3 + 2} for g in range(4)}
+    led = {"driver": "IS31FL3733", "sw_count": 12, "cs_count": 16, "cs_used": 14,
+           "polarity": "anode->CS (source), cathodes->SW (sink)",
+           "key_group": key_group, "key_cs": key_cs, "sw_lines": sw_lines, "groups": groups}
+
     holes = [{"x": h["x"], "y": h["y"], "d": 3.2, "ref": h["ref"]} for h in ext["holes"]]
     spec = {
         "name": "openxen-m56",
@@ -130,6 +149,7 @@ def main() -> int:
         "unit_cell": UNIT_CELL,
         "controller_zones": CONTROLLER_ZONES,
         "mux": {**MUX, "groups": muxes, "libhmk_matrix": matrix},
+        "led": led,
         "plate": {"thickness": 1.5, "standoff": 3.5, "cutout": 14.0, "source": "existing CNC plates from freexen module_top.dxf"},
         "provenance": {"extract": str(EXTRACT.relative_to(ROOT)), "key_order": "xentool LTN_BOARD0_TUPLES (Lumatone .ltn index)"},
     }

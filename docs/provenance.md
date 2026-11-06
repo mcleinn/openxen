@@ -13,6 +13,12 @@ Pinned upstream sources and tool versions used by this project. Update this file
 
 Other clones (Zellia80-HE, Lucca-58HE, Plink, kicad-kbplacer, Fabrication-Toolkit, wooting-analog-sdk, void_switch_kicad) are reading references only; see `reference/SOURCES.md`.
 
+## Copied into this repository (GPL-3.0, from HE60 501871e)
+
+- `hardware/kicad/lib/openxen.kicad_sym`: symbols `MT9102ET` and `AT32F405RxT7` extracted from `HE60.kicad_sch` by `hardware/generators/gen_project.py`.
+- The controller block of `openxen-m56.kicad_sch` (USB-C, ESD, fuse, LDOs, MCU, crystal, buttons, TC2030, JST) is HE60's schematic region below its key matrix, copied item by item by `gen_schematic.py`; sensor and mux cells are HE60's HE1 / AM2 cells cloned.
+- Footprint `SW_Lekker_1u` geometry = HE60 `MX-1U` = macrolev `SW_MX_Lekker_1u`; `LED_RGB_1206R_MHT151RGBCT` = marbastlib `LED_MX_1206R` geometry (datasheet-confirmed).
+
 ## Our own prior work (local, read as input)
 
 | Source | Used for |

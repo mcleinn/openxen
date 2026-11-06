@@ -35,6 +35,7 @@ SPEC = ROOT / "layout" / "module.json"
 KICAD_FP = Path(os.environ.get("KICAD9_FOOTPRINT_DIR", r"C:\Program Files\KiCad\9.0\share\kicad\footprints"))
 
 DEFAULT_LIBS = {
+    "openxen": ROOT / "hardware" / "kicad" / "lib" / "openxen.pretty",
     "HE60": ROOT / "reference" / "repos" / "HE60" / "HE60" / "lib" / "HE60.pretty",
     "Package_TO_SOT_SMD": KICAD_FP / "Package_TO_SOT_SMD.pretty",
     "LED_SMD": KICAD_FP / "LED_SMD.pretty",
@@ -45,9 +46,9 @@ DEFAULT_LIBS = {
 # Footprint choices (library:name). The switch uses HE60's MX-1U until our own
 # ``openxen:SW_Lekker_1u`` exists (identical holes; ours adds the LED cutout keep-out).
 FP = {
-    "switch": ("HE60", "MX-1U"),
+    "switch": ("openxen", "SW_Lekker_1u"),
     "sensor": ("Package_TO_SOT_SMD", "SOT-23"),
-    "led": ("LED_SMD", "LED_Avago_PLCC4_3.2x2.8mm_CW"),  # placeholder for SK6812MINI-E (3.2x2.8 PLCC4)
+    "led": ("openxen", "LED_RGB_1206R_MHT151RGBCT"),  # reverse-mount 1206 RGB; its 2.1 mm NPTH is the light hole
     "cap": ("Capacitor_SMD", "C_0402_1005Metric"),
     "hole": ("MountingHole", "MountingHole_3.2mm_M3"),
 }
@@ -125,8 +126,8 @@ def place(spec: dict, board: "pcbnew.BOARD", libs: dict[str, Path], redraw_edges
     for k in spec["keys"]:
         n, x, y = k["id"], k["x"], k["y"]
         p.ensure(f"SW{n}", *FP["switch"], x, y, 0, bottom=False, value="Lekker Tikken")
-        p.ensure(f"HE{n}", *FP["sensor"], x + uc["sensor"]["x"], y + uc["sensor"]["y"], uc["sensor"]["rot"], bottom=True, value="MT9102ET")
-        p.ensure(f"D{n}", *FP["led"], x + uc["led"]["x"], y + uc["led"]["y"], 0, bottom=True, value="SK6812MINI-E")
+        p.ensure(f"HE{n}", *FP["sensor"], x + uc["sensor"]["x"], y + uc["sensor"]["y"], uc["sensor"]["rot"], bottom=True, value="GH39FKSW")
+        p.ensure(f"D{n}", *FP["led"], x + uc["led"]["x"], y + uc["led"]["y"], 0, bottom=True, value="MHT151RGBCT")
         p.ensure(f"C{n}", *FP["cap"], x + CAP_OFFSETS["C"][0], y + CAP_OFFSETS["C"][1], 90, bottom=True, value="100n")
         p.ensure(f"CF{n}", *FP["cap"], x + CAP_OFFSETS["CF"][0], y + CAP_OFFSETS["CF"][1], 90, bottom=True, value="4n7")
     for i, h in enumerate(spec["holes"], start=1):
@@ -136,9 +137,7 @@ def place(spec: dict, board: "pcbnew.BOARD", libs: dict[str, Path], redraw_edges
         v = spec["outline"]["vertices"]
         for a, b in zip(v, v[1:] + v[:1]):
             p.segment(tuple(a), tuple(b))
-        led = uc["led"]
-        for k in spec["keys"]:
-            p.rect(k["x"] + led["x"], k["y"] + led["y"], led["cutout_w"], led["cutout_h"])
+        # LED light holes are NPTH pads inside the LED footprint; nothing to draw on Edge.Cuts.
     return p
 
 
