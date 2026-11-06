@@ -44,6 +44,22 @@ def main() -> int:
     txt = txt.replace("(type route)", "(type protect)")
     # Inner layers are the GND / +3.3VA planes: declare them "power" so Freerouting only
     # routes on F.Cu / B.Cu and never cuts a plane with a trace (vias through them are fine).
+    # Drop the plane polygons: Freerouting counts every via of another net inside a plane as
+    # a fixed clearance violation (225 of them here) and cannot route around them. KiCad's
+    # zone fill makes the anti-pads after the import anyway, and the inner layers are
+    # declared "power" below, so Freerouting never needs the planes.
+    while "(plane " in txt:
+        i = txt.index("(plane ")
+        depth, j = 0, i
+        while True:
+            if txt[j] == "(":
+                depth += 1
+            elif txt[j] == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        txt = txt[:i] + txt[j + 1:]
     nl = chr(10)
     for lay in ("In1.Cu", "In2.Cu"):
         txt = txt.replace("(layer %s%s      (type signal)" % (lay, nl), "(layer %s%s      (type power)" % (lay, nl))
