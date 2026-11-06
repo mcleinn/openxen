@@ -19,3 +19,5 @@ out/
 *-backups/
 fp-info-cache
 _autosave-*
+en/
+freerouting.log
