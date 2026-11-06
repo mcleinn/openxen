@@ -26,7 +26,9 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--board", required=True)
     ap.add_argument("--passes", type=int, default=40)
-    ap.add_argument("--timeout", type=int, default=3000)
+    ap.add_argument("--timeout", type=int, default=6 * 3600, help="seconds; Freerouting writes the SES only at the end")
+    ap.add_argument("--threads", type=int, default=4, help="optimizer threads (memory grows with it)")
+    ap.add_argument("--xmx", default="3g", help="Java heap cap; this machine has 8 GB")
     args = ap.parse_args()
     out_dir = ROOT / "build" / "freerouting"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -46,8 +48,8 @@ def main() -> int:
     if ses.exists():
         ses.unlink()
     # no fanout stage: it would put a via next to every SMD pad (cells are already routed by route_cell.py)
-    cmd = [str(java), "-jar", str(jar), "-de", str(dsn), "-do", str(ses), "-mp", str(args.passes), "-l", "en", "-mt", "12",
-           "--router.fanout.enabled=false"]
+    cmd = [str(java), f"-Xmx{args.xmx}", "-jar", str(jar), "-de", str(dsn), "-do", str(ses), "-mp", str(args.passes), "-l", "en",
+           "-mt", str(args.threads), "--router.fanout.enabled=false"]
     t0 = time.time()
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=str(out_dir))
     print(f"freerouting: {time.time() - t0:.0f} s")
