@@ -24388,7 +24388,7 @@
 		(descr "SMD Tactile Switch, http://www.helloxkb.com/public/images/pdf/TS-1187A-X-X-X.pdf")
 		(tags "SPST Tactile Switch")
 		(property "Reference" "SW2"
-			(at -4.575 -2.6 0)
+			(at -4.575 -4 0)
 			(layer "B.SilkS")
 			(uuid "16e820f5-2bf7-42f7-89c5-b14725d8b52a")
 			(effects

@@ -81,7 +81,7 @@ def main() -> int:
             cx, cy = bb.GetCenter().x, bb.GetCenter().y
             pos = {"above": (cx, bb.GetTop() - pcbnew.FromMM(0.8)), "below": (cx, bb.GetBottom() + pcbnew.FromMM(0.8)),
                    "left": (bb.GetLeft() - pcbnew.FromMM(1.6), cy), "right": (bb.GetRight() + pcbnew.FromMM(1.6), cy),
-                   "below_left": (cx - pcbnew.FromMM(2.6), bb.GetBottom() + pcbnew.FromMM(0.8))}[side]
+                   "below_left": (cx - pcbnew.FromMM(4.0), bb.GetBottom() + pcbnew.FromMM(0.8))}[side]
             r.SetPosition(pcbnew.VECTOR2I(*pos))
             n_other += 1
         elif prefix == "R" and digits and 10 <= int(digits) <= 16:
