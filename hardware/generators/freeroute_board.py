@@ -82,8 +82,7 @@ def main() -> int:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=str(out_dir))
         print(f"freerouting: {time.time() - t0:.0f} s")
         lines = [l for l in (r.stdout + r.stderr).splitlines() if "INFO" in l and ("pass #" in l or "stage completed" in l or "Optimization" in l)]
-        print("
-".join(l[:200] for l in lines[-6:]))
+        print(chr(10).join(l[:200] for l in lines[-6:]))
         if not ses.exists():
             raise SystemExit("no SES produced")
         board = pcbnew.LoadBoard(args.board)
