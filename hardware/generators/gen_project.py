@@ -67,9 +67,10 @@ def write_tables() -> None:
     classes.append(cls("LED_SW", 0.5, via=0.6, drill=0.3))    # IS31FL3733 sinks: up to 14 x 42 mA peak per line
     classes.append(cls("LED_CS", 0.3))                        # IS31FL3733 sources: one LED, <= 42 mA peak
     classes.append(cls("USB", 0.25, dpw=0.25, dpg=0.2))       # HE60 geometry copied; short run
+    classes.append(cls("Plane", 0.5, via=0.6, drill=0.3))     # GND / +3.3VA: inner planes, pads reach them by via (add_plane_vias.py); autorouter ignores them
     patterns = [{"pattern": "HE*", "netclass": "Analog"}, {"pattern": "/HE*", "netclass": "Analog"},
                 {"pattern": "+5V", "netclass": "Power5V"}, {"pattern": "VBUS", "netclass": "Power5V"},
-                {"pattern": "+3.3V", "netclass": "Power3V3"}, {"pattern": "+3.3VA", "netclass": "Power3V3"},
+                {"pattern": "+3.3V", "netclass": "Power3V3"}, {"pattern": "+3.3VA", "netclass": "Plane"}, {"pattern": "GND", "netclass": "Plane"},
                 {"pattern": "LED_SW*", "netclass": "LED_SW"}, {"pattern": "LED_CS*", "netclass": "LED_CS"},
                 {"pattern": "USB_*", "netclass": "USB"}]
     data["net_settings"] = {"classes": classes, "meta": {"version": 4}, "net_colors": None, "netclass_assignments": None, "netclass_patterns": patterns}

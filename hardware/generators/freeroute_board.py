@@ -71,7 +71,8 @@ def main() -> int:
         ses.unlink()
     # no fanout stage: it would put a via next to every SMD pad (cells are already routed by route_cell.py)
     cmd = [str(java), f"-Xmx{args.xmx}", "-jar", str(jar), "-de", str(dsn), "-do", str(ses), "-mp", str(args.passes), "-l", "en",
-           "-mt", str(args.threads), "--router.fanout.enabled=false", "--gui.enabled=false"]
+           "-mt", str(args.threads), "--router.fanout.enabled=false", "--gui.enabled=false",
+           "--router.ignore_net_classes=Plane"]   # GND / +3.3VA live on the inner planes (vias by add_plane_vias.py)
     t0 = time.time()
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=args.timeout, cwd=str(out_dir))
     print(f"freerouting: {time.time() - t0:.0f} s")
