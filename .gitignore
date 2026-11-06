@@ -1,0 +1,21 @@
+# Third-party material (datasheets, cloned repos, saved web pages) — never committed
+reference/
+
+# Local tooling
+.venv/
+__pycache__/
+*.pyc
+.pio/
+.vscode/
+*.lck
+~*.lck
+
+# Generated build artefacts (keep generated *sources* under layout/ and firmware/ committed)
+build/
+out/
+*.zip
+
+# KiCad backups / caches
+*-backups/
+fp-info-cache
+_autosave-*

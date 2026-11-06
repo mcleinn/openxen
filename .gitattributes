@@ -1,0 +1,8 @@
+* text=auto
+*.png binary
+*.jpg binary
+*.kicad_pcb text eol=lf
+*.kicad_sch text eol=lf
+*.json text eol=lf
+*.py text eol=lf
+*.md text eol=lf

@@ -1,0 +1,441 @@
+{
+  "name": "openxen-m56",
+  "manufacturer": "openxen",
+  "maintainer": "mcleinn",
+  "usb": {
+    "vid": "0x1209",
+    "pid": "0x0000",
+    "port": "hs"
+  },
+  "keyboard": {
+    "num_profiles": 2,
+    "num_layers": 2,
+    "num_keys": 56,
+    "num_advanced_keys": 8
+  },
+  "hardware": {
+    "hse_value": 12000000,
+    "driver": "at32f405xx"
+  },
+  "analog": {
+    "invert_adc": false,
+    "mux": {
+      "select": [
+        "C1",
+        "C2",
+        "C3"
+      ],
+      "input": [
+        "A3",
+        "A4",
+        "A5",
+        "A6",
+        "A7",
+        "C4",
+        "C5"
+      ],
+      "matrix": [
+        [
+          1,
+          9,
+          17,
+          25,
+          33,
+          41,
+          49
+        ],
+        [
+          2,
+          10,
+          18,
+          26,
+          34,
+          42,
+          50
+        ],
+        [
+          3,
+          11,
+          19,
+          27,
+          35,
+          43,
+          51
+        ],
+        [
+          4,
+          12,
+          20,
+          28,
+          36,
+          44,
+          52
+        ],
+        [
+          5,
+          13,
+          21,
+          29,
+          37,
+          45,
+          53
+        ],
+        [
+          6,
+          14,
+          22,
+          30,
+          38,
+          46,
+          54
+        ],
+        [
+          7,
+          15,
+          23,
+          31,
+          39,
+          47,
+          55
+        ],
+        [
+          8,
+          16,
+          24,
+          32,
+          40,
+          48,
+          56
+        ]
+      ]
+    }
+  },
+  "calibration": {
+    "initial_rest_value": 2400,
+    "initial_bottom_out_threshold": 650
+  },
+  "layout": {
+    "labels": [],
+    "keymap": [
+      [
+        {
+          "key": 0,
+          "x": 0.0
+        },
+        {
+          "key": 1
+        }
+      ],
+      [
+        {
+          "key": 2,
+          "x": 0.5
+        },
+        {
+          "key": 3
+        },
+        {
+          "key": 4
+        },
+        {
+          "key": 5
+        },
+        {
+          "key": 6
+        }
+      ],
+      [
+        {
+          "key": 7,
+          "x": 0.0
+        },
+        {
+          "key": 8
+        },
+        {
+          "key": 9
+        },
+        {
+          "key": 10
+        },
+        {
+          "key": 11
+        },
+        {
+          "key": 12
+        }
+      ],
+      [
+        {
+          "key": 13,
+          "x": 0.5
+        },
+        {
+          "key": 14
+        },
+        {
+          "key": 15
+        },
+        {
+          "key": 16
+        },
+        {
+          "key": 17
+        },
+        {
+          "key": 18
+        }
+      ],
+      [
+        {
+          "key": 19,
+          "x": 0.0
+        },
+        {
+          "key": 20
+        },
+        {
+          "key": 21
+        },
+        {
+          "key": 22
+        },
+        {
+          "key": 23
+        },
+        {
+          "key": 24
+        }
+      ],
+      [
+        {
+          "key": 25,
+          "x": 0.5
+        },
+        {
+          "key": 26
+        },
+        {
+          "key": 27
+        },
+        {
+          "key": 28
+        },
+        {
+          "key": 29
+        },
+        {
+          "key": 30
+        }
+      ],
+      [
+        {
+          "key": 31,
+          "x": 0.0
+        },
+        {
+          "key": 32
+        },
+        {
+          "key": 33
+        },
+        {
+          "key": 34
+        },
+        {
+          "key": 35
+        },
+        {
+          "key": 36
+        }
+      ],
+      [
+        {
+          "key": 37,
+          "x": 0.5
+        },
+        {
+          "key": 38
+        },
+        {
+          "key": 39
+        },
+        {
+          "key": 40
+        },
+        {
+          "key": 41
+        },
+        {
+          "key": 42
+        }
+      ],
+      [
+        {
+          "key": 43,
+          "x": 0.0
+        },
+        {
+          "key": 44
+        },
+        {
+          "key": 45
+        },
+        {
+          "key": 46
+        },
+        {
+          "key": 47
+        },
+        {
+          "key": 48
+        }
+      ],
+      [
+        {
+          "key": 49,
+          "x": 1.5
+        },
+        {
+          "key": 50
+        },
+        {
+          "key": 51
+        },
+        {
+          "key": 52
+        },
+        {
+          "key": 53
+        }
+      ],
+      [
+        {
+          "key": 54,
+          "x": 4.0
+        },
+        {
+          "key": 55
+        }
+      ]
+    ]
+  },
+  "default_keymap": [
+    [
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO"
+    ],
+    [
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO",
+      "KC_NO"
+    ]
+  ]
+}
