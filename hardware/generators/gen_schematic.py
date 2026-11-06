@@ -187,6 +187,11 @@ def main() -> int:
                            skip_lib_ids=("Mechanical:", "HE60:MT9102ET", "4xxx:4051", "openxen:MT9102ET"))
     for item in ctrl:
         if item[0] == "symbol":
+            if prop(item, "Reference") == "J2":  # HE60's JST alternative USB connector: not populated, not on our board
+                for flag, val in (("in_bom", "no"), ("on_board", "no"), ("dnp", "yes")):
+                    node = kid(item, flag)
+                    if node:
+                        node[1] = val
             lid = kid(item, "lib_id")
             if lid[1].s.startswith("HE60:"):
                 lid[1] = Q(lid[1].s.replace("HE60:", "openxen:"))

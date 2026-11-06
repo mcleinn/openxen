@@ -20,6 +20,7 @@ running in update mode and diff afterwards.
 from __future__ import annotations
 
 import argparse
+import re
 import json
 import os
 import sys
@@ -50,7 +51,7 @@ FP = {
     "sensor": ("Package_TO_SOT_SMD", "SOT-23"),
     "led": ("openxen", "LED_RGB_1206R_MHT151RGBCT"),  # reverse-mount 1206 RGB; its 2.1 mm NPTH is the light hole
     "cap": ("Capacitor_SMD", "C_0402_1005Metric"),
-    "hole": ("MountingHole", "MountingHole_3.2mm"),  # plain hole, no pad: standoff heads sit between the 14 mm switch housings
+    "hole": ("openxen", "MountingHole_3.2mm_M3_NoPad"),  # standoff heads sit between the 14 mm switch housings
 }
 
 # Passive offsets relative to the switch centre (mm, x right, y down); bottom side.
@@ -86,7 +87,7 @@ class Placer:
             fp = self.load(lib, name)
             fp.SetFPIDAsString(f"{lib}:{name}")
             fp.SetReference(ref)
-            if ref[0] in "KH":  # switches and mounting holes are not in the schematic
+            if re.fullmatch(r"[KH]\d+", ref):  # switches (K) and mounting holes (H) are not in the schematic
                 fp.SetBoardOnly(True)
                 fp.SetExcludedFromBOM(True)
                 fp.SetExcludedFromPosFiles(True)
