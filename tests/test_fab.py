@@ -120,3 +120,16 @@ def test_fuse_carries_worst_case_module_current():
     m = re.match(r"([\d.]+)(m?)A", attrs["Hold Current"])
     hold_ma = float(m.group(1)) * (1 if m.group(2) else 1000)
     assert hold_ma * PTC_HOLD_DERATING >= worst, (hold_ma, worst)
+
+
+def test_jlc_placement_matches_easyeda_footprints(prod):
+    """Offline JLCPCB preview (hardware/fab/check_jlc_placement.py): every part, placed with its
+    EasyEDA footprint at the CPL position and rotation, lands pin 1 (LED: every pin) on our pads.
+    Needs the cached footprints in reference/easyeda (run the script once with --fetch)."""
+    import subprocess
+    cache = ROOT / "reference" / "easyeda"
+    kpy = r"C:\Program Files\KiCad\9.0\bin\python.exe"
+    if not cache.exists() or not any(cache.glob("C*.json")):
+        pytest.skip("EasyEDA footprint cache missing (check_jlc_placement.py --fetch)")
+    r = subprocess.run([kpy, str(ROOT / "hardware" / "fab" / "check_jlc_placement.py")], capture_output=True, text=True)
+    assert r.returncode == 0, [l for l in r.stdout.splitlines() if not l.startswith("OK")]

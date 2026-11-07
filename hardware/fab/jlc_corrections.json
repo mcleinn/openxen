@@ -1,0 +1,8 @@
+{
+  "_comment": "Per-part placement corrections for JLCPCB, keyed by LCSC number, found by hardware/fab/check_jlc_placement.py (EasyEDA footprint of the part vs our KiCad footprint). make_fab.py writes them as 'FT Rotation Offset' (degrees, added to the toolkit's rotation) and 'FT Position Offset' (mm, toolkit convention) onto the footprints of its board copy. The toolkit's generic table (QFN- 90, SOT-23* 180) is keyed by KiCad footprint name, but JLC's orientation depends on each part's EasyEDA footprint.",
+  "C409782":  {"rotation": 180, "why": "MHT151RGBCT: EasyEDA footprint turned 180 deg vs ours (anode would land on the green pad)"},
+  "C7519":    {"rotation": 90,  "why": "USBLC6-2SC6 SOT-23-6: EasyEDA pins in rows, KiCad in columns; the generic SOT-23 180 is wrong here"},
+  "C485517":  {"rotation": 90,  "why": "TLV75733PDBV SOT-23-5: as SOT-23-6"},
+  "C506251":  {"rotation": 270, "why": "IS31FL3733 QFN-48: EasyEDA pin 1 top-left like KiCad; the generic QFN 90 is wrong here"},
+  "C165948":  {"position": [0, 1.684], "why": "HRO TYPE-C-31-M-12: EasyEDA origin 1.68 mm from KiCad's along the plug axis"}
+}
