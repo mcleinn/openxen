@@ -47,15 +47,20 @@ def main() -> int:
         put(b, f"AM{g['index']}", mx, my, 0)                              # pin rows vertical at x +-2.9
         put(b, f"CM{g['index']}", mx + CAP_DX, my, 90)
         print(f"mux {g['index']} under key {g['host_key']} at ({mx:.1f},{my:.1f})")
-    # LED driver block in the bottom-left strip (x 10.8..84.8, y 190.7..210.2)
-    x0, y0 = 40.0, 200.0   # clear of mounting hole H4 at (19.2, 192)
+    # LED driver block in the bottom-left strip (x 10.8..84.8, y 190.7..210.2). The QFN's left,
+    # top and right edges carry the 26 LED lines (SW1-9 left; SW10-12, CS1-8 top; CS9-14 right),
+    # so every support part sits below it, next to the bottom-edge pins it serves (DVCC/AVCC
+    # 37/38, VIO 39, I2C/SDB/INTB/IICRST/SYNC, REXT at the bottom-right corner).
+    x0, y0 = 40.0, 199.0   # clear of mounting hole H4 at (19.2, 192)
     put(b, "U10", x0, y0, 0)
-    caps = ["C212", "C213", "C214", "C215", "C216", "C217", "C210", "C211"]
-    for i, c in enumerate(caps):
-        put(b, c, x0 - 6.5 + (i % 4) * 2.2, y0 - 6.3 + (i // 4) * 1.6 if i < 4 else y0 + 6.0 + (i // 4 - 1) * 1.6, 90)
-    put(b, "C218", x0 + 6.8, y0 - 5.0, 90)          # 22u bulk
+    row_a = ["C214", "C215", "C210", "C211", "C216", "C217"]          # 0603: +5V pairs, VIO pair
+    for i, c in enumerate(row_a):
+        put(b, c, x0 - 4.5 + i * 1.8, y0 + 6.6, 90)
+    put(b, "C212", x0 - 4.5, y0 + 10.0, 90)
+    put(b, "C213", x0 - 2.7, y0 + 10.0, 90)
+    put(b, "C218", x0 + 0.0, y0 + 10.0, 90)                           # 22u bulk (0805)
     for i, r in enumerate(["R10", "R11", "R12", "R13", "R14", "R15", "R16"]):
-        put(b, r, x0 + 9.0 + i * 2.0, y0 + 2.0, 90)
+        put(b, r, x0 + 6.5 + i * 1.5, y0 + 6.6 + (i % 2) * 2.6, 90)
     # test points: one row below the LDO block, bottom side (TP1..TP16)
     for i in range(16):
         put(b, f"TP{i + 1}", 61.0 + i * 2.54, 19.3, 0)
