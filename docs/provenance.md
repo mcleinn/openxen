@@ -39,6 +39,8 @@ Other clones (Zellia80-HE, Lucca-58HE, Plink, kicad-kbplacer, Fabrication-Toolki
 | Java (portable) | Temurin 25.0.5 JRE under `reference/tools/jre25/` (also 21 under `jre/`) | runs Freerouting; no admin install |
 | Freerouting | 2.5.0 jar under `reference/tools/` (needs Java 25) | cell comparison run (`freeroute_cell.py`) and the whole-board leftover-net pass (`freeroute_board.py`, `--router.fanout.enabled=false`); cells, controller blocks and planes are scripted, not autorouted |
 | Freerouting host | user's Linux VM "linuxvm" (Ubuntu 24.04, 4 cores, 54 GB), Temurin 25 JRE + the jar in the user's home, reached over SSH | `freeroute_board.py --remote`; the 8 GB PC cannot hold a whole-board run |
+| Fabrication Toolkit | `reference/repos/Fabrication-Toolkit` at 7f627b6, run through its CLI by `hardware/fab/make_fab.py` | JLCPCB Gerbers/BOM/positions, rotation table `transformations.csv` |
+| TraceMaker | v0.12.1 Linux release binary (GPL-3.0, github.com/DingoOz/TraceMaker) on the VM, user-installed | autorouter trial for the non-scripted nets |
 | 7-Zip | `C:\Program Files-Zip` | split-archive extraction (jlcparts database) |
 | jlcparts database | `reference/jlcparts/cache.sqlite3`, snapshot 2026-11-06 | JLCPCB stock / basic-extended lookups |
 
