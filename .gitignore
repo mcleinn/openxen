@@ -21,3 +21,6 @@ fp-info-cache
 _autosave-*
 en/
 freerouting.log
+
+# machine-specific Claude Code skill (routing VM access)
+.claude/skills/tracemaker/
