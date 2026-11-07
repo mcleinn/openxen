@@ -63,6 +63,7 @@ def main() -> int:
     print("DRC errors:", len(errs), dict(collections.Counter(v["type"] for v in errs)))
     print("unconnected:", len(d.get("unconnected_items", [])), "parity:", len(d.get("schematic_parity", [])))
     run([sys.executable, str(G.parents[1] / "firmware" / "generators" / "gen_keyboard_json.py")], "firmware keyboard.json")
+    run([sys.executable, str(G.parents[1] / "firmware" / "build_firmware.py")], "firmware build (libhmk, PlatformIO)")
     run([sys.executable, "-m", "pytest", "-q", str(G.parents[1] / "tests")], "consistency tests (tests/)")
     return 0
 

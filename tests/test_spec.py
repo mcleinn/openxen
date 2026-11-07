@@ -48,11 +48,13 @@ def test_mux_groups_partition_keys(spec, keys):
 
 
 def test_libhmk_matrix_matches_groups(spec):
+    """libhmk keyboard.json convention: matrix[mux input][select channel] = key index + 1
+    (scripts/make.py transposes it into the C table mux_input_matrix[channel][input])."""
     m = spec["mux"]["libhmk_matrix"]
-    assert len(m) == 8 and all(len(r) == 7 for r in m)
+    assert len(m) == 7 and all(len(r) == 8 for r in m)
     for g in spec["mux"]["groups"]:
         for ch, kid in enumerate(g["keys"]):
-            assert m[ch][g["index"]] == kid + 1
+            assert m[g["index"]][ch] == kid + 1
 
 
 def test_mux_channels_follow_pin_columns(spec, keys):

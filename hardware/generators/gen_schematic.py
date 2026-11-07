@@ -180,12 +180,12 @@ def main() -> int:
     am1, mcell = he60_cell_items(he, "AM2", (14.0, 31.0, 16.0, 25.0))
     mx, my, _ = sexp.at(am1)
     mrefs = sorted({prop(i, "Reference") for i in mcell if i[0] == "symbol"})
-    matrix = SPEC["mux"]["libhmk_matrix"]  # [select][input] -> key id + 1
+    matrix = SPEC["mux"]["libhmk_matrix"]  # [mux input][select channel] -> key id + 1 (libhmk keyboard.json order)
     he_in_by_channel = he60_mux_channel_labels(he, am1, mcell, libs)
     for m in range(7):
         label_map = {"MUX_OUT_2": f"MUX_OUT_{m + 1}"}
         for s_ in range(8):
-            kid_ = matrix[s_][m]
+            kid_ = matrix[m][s_]
             label_map[he_in_by_channel[s_]] = f"HE{kid_ - 1}" if kid_ else f"NC_MUX{m}_{s_}"
         ref_map = {r: (f"AM{m}" if r == "AM2" else f"CM{m}") for r in mrefs if not r.startswith("#")}
         stamp(sh_mux, mcell, MUX_ORIGIN[0] + m * MUX_PITCH - mx, MUX_ORIGIN[1] - my, ref_map, label_map)

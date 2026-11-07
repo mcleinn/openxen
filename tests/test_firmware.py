@@ -16,7 +16,10 @@ def test_matrix_and_pins_match_spec(keyboard, spec):
     flat = sorted(v for row in mux["matrix"] for v in row if v)
     assert flat == list(range(1, 57))
     assert keyboard["keyboard"]["num_keys"] == 56
-    assert len(keyboard["default_keymap"][0]) == 56
+    assert len(mux["matrix"]) == len(mux["input"])                         # libhmk: [input][select channel]
+    assert all(len(r) == 2 ** len(mux["select"]) for r in mux["matrix"])
+    assert "default_keymap" not in keyboard                               # not a libhmk field (silently ignored)
+    assert len(keyboard["keymap"]) >= 1 and all(len(layer) == 56 for layer in keyboard["keymap"])
 
 
 def test_sensor_polarity_follows_part(keyboard, parts):

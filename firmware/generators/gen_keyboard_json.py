@@ -56,7 +56,7 @@ def main() -> int:
         },
         "calibration": {"initial_rest_value": 2400, "initial_bottom_out_threshold": 650},
         "layout": {"labels": [], "keymap": keymap},
-        "default_keymap": [["KC_NO"] * 56] * 2,
+        "keymap": [["KC_NO"] * 56] * 2,
     }
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = OUT_DIR / "keyboard.json"
@@ -82,7 +82,9 @@ def main() -> int:
     flat = [v for row in kb["analog"]["mux"]["matrix"] for v in row]
     ids = sorted(v for v in flat if v)
     assert ids == list(range(1, 57)), "matrix must contain each key id 1..56 exactly once"
-    print(f"matrix: {len(kb['analog']['mux']['matrix'])} select rows x {len(kb['analog']['mux']['input'])} inputs, {len(ids)} keys")
+    mx = kb["analog"]["mux"]
+    assert len(mx["matrix"]) == len(mx["input"]) and all(len(r) == 2 ** len(mx["select"]) for r in mx["matrix"]), "matrix must be [input][select channel]"
+    print(f"matrix: {len(mx['matrix'])} inputs x {2 ** len(mx['select'])} select channels, {len(ids)} keys")
     return 0
 
 

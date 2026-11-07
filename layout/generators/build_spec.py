@@ -153,10 +153,10 @@ def main() -> int:
         m["input_pin"] = MUX["input_pins"][m["index"]]
         m["keys"] = [k["id"] for k in sorted(ks, key=lambda k: k["mux_channel"])]   # index = channel
 
-    # libhmk matrix: rows = select value 0..7, cols = mux input 0..6, values = key id + 1 (0 = unused).
-    matrix = [[0] * 7 for _ in range(8)]
+    # libhmk keyboard.json matrix: rows = mux input 0..6, cols = select channel 0..7, values = key id + 1 (0 = unused).
+    matrix = [[0] * 8 for _ in range(7)]
     for k in keys:
-        matrix[k["mux_channel"]][k["mux"]] = k["id"] + 1
+        matrix[k["mux"]][k["mux_channel"]] = k["id"] + 1
 
     # LED matrix for the IS31FL3733: CS1..CS16 are current SOURCES (LED anodes), SW1..SW12 are
     # the scanned current SINKS (LED cathodes, 1/12 duty). A common-anode RGB therefore uses one
