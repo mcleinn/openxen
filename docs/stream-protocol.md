@@ -8,9 +8,9 @@ raw HID, used by hmkconf) is unchanged and separate.
 
 | Item | Value |
 |---|---|
-| Interface | HID, vendor usage page `0xFFAC`, usage `0xAC`, input only, no report ID |
+| Interface | HID, vendor usage page `0xFFAC`, usage `0xAC`, no report ID; input = this stream, output = LED commands (docs/led-protocol.md) |
 | Report | 144 bytes, fixed layout below |
-| Endpoint | interrupt IN `0x85`; high speed: 160-byte packets, every 125 µs microframe (one report per scan); full speed fallback: 64-byte packets every 1 ms (report spans 3 packets, at most ~330 reports/s, older scans dropped) |
+| Endpoint | interrupt IN `0x85` (OUT `0x03` for LED commands); high speed: 160-byte packets, every 125 µs microframe (one report per scan); full speed fallback: 64-byte packets every 1 ms (report spans 3 packets, at most ~330 reports/s, older scans dropped) |
 | Identification | VID/PID of the module, serial number string = MCU unique ID (per module, used to assign modules to board 0..4) |
 
 Host access: any HID API (hidapi `hid_read` on the interface with usage page `0xFFAC`). On
@@ -29,7 +29,7 @@ Windows the HID class driver polls the endpoint continuously; reports queue in t
 | 12 | 1 | `num_keys` | 56 |
 | 13 | 1 | `cal_first_key` | calibration below belongs to keys `cal_first_key .. +3` (mod `num_keys`) |
 | 14 | 1 | `adc_bits` | 12 |
-| 15 | 1 | reserved | 0 |
+| 15 | 1 | `led_status` | LED driver state (docs/led-protocol.md): `0x01` host session active, `0x02` host timed out (LEDs off), `0x04` I2C error since the previous report |
 | 16 | 112 | `values[56]` | u16 per key, key index = libhmk key = Lumatone `.ltn` key number; same domain as the calibration (rises with travel) |
 | 128 | 16 | `cal[4]` | per key: u16 `rest`, u16 `bottom_out` (libhmk's running calibration) |
 

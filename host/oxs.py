@@ -34,6 +34,7 @@ class Report:
     num_keys: int
     cal_first_key: int
     adc_bits: int
+    led_status: int
     values: tuple[int, ...]
     cal: tuple[tuple[int, int], ...]          # (rest, bottom_out) for cal_first_key + i
 
@@ -41,14 +42,14 @@ class Report:
 def parse(raw: bytes) -> Report:
     if len(raw) != REPORT_SIZE:
         raise ValueError(f"report must be {REPORT_SIZE} bytes, got {len(raw)}")
-    magic, version, flags, seq, dropped, ts, nkeys, cal_first, bits, _ = HEADER.unpack_from(raw, 0)
+    magic, version, flags, seq, dropped, ts, nkeys, cal_first, bits, led_status = HEADER.unpack_from(raw, 0)
     if magic != MAGIC or version != VERSION:
         raise ValueError(f"not an openxen stream report (magic {magic:#06x}, version {version})")
     if not 0 < nkeys <= 56:
         raise ValueError(f"bad num_keys {nkeys}")
     values = struct.unpack_from("<56H", raw, 16)[:nkeys]
     cal = tuple(struct.unpack_from("<2H", raw, 128 + 4 * i) for i in range(CAL_PER_REPORT))
-    return Report(flags, seq, dropped, ts, nkeys, cal_first, bits, values, cal)
+    return Report(flags, seq, dropped, ts, nkeys, cal_first, bits, led_status, values, cal)
 
 
 @dataclass

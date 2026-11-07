@@ -35,7 +35,7 @@ typedef struct __attribute__((packed)) {
   uint8_t num_keys;                 /* keys carried in values[] */
   uint8_t cal_first_key;            /* cal[i] belongs to key cal_first_key + i (mod num_keys) */
   uint8_t adc_bits;                 /* ADC resolution, 12 on the AT32F405 */
-  uint8_t reserved;
+  uint8_t led_status;               /* OXL_STATUS_* (openxen_led.h); 0 = no LED information */
   uint16_t values[OXS_MAX_KEYS];    /* per key, libhmk key order (Lumatone .ltn index) */
   oxs_cal_t cal[OXS_CAL_PER_REPORT];
 } oxs_report_t;

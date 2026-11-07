@@ -85,3 +85,16 @@ def test_mux_adc_channels(elf, spec, pin_by_function):
         pin = "P" + spec["mux"]["input_pins"][m]
         assert ADC_CHANNEL[pin] == chan, (m, pin, chan)
         assert pin_by_function[("U4", pin)] == f"MUX_OUT_{m + 1}"
+
+
+def test_led_map_in_firmware_matches_wiring(elf, pin_by_function, netlist, keys):
+    """key_map (openxen_led.c) in the compiled firmware: 56 x {cs, sw_r, sw_g, sw_b}."""
+    raw = elf.symbol("key_map")
+    assert len(raw) == 56 * 4
+    pin_net = {(r, p): n for n, nodes in netlist.items() for r, p, _ in nodes}
+    cs_of = {pin_by_function[("U10", f"CS{c}")]: c - 1 for c in range(1, 15)}
+    sw_of = {pin_by_function[("U10", f"SW{s}")]: s - 1 for s in range(1, 13)}
+    for n in keys:
+        cs, r, g, b = raw[4 * n:4 * n + 4]
+        assert cs == cs_of[pin_net[(f"D{n}", "1")]], n
+        assert (r, g, b) == tuple(sw_of[pin_net[(f"D{n}", p)]] for p in "234"), n

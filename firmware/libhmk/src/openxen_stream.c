@@ -11,6 +11,7 @@
 #include "tusb.h"
 #include "device/usbd_pvt.h"
 #include "usb_descriptors.h"
+#include "openxen_led.h"
 
 static oxs_ring_t ring;
 static oxs_clock_t clock_us;
@@ -62,6 +63,7 @@ void openxen_stream_task(void) {
     usbd_edpt_release(BOARD_TUD_RHPORT, EP_IN_ADDR_STREAM);
     return;
   }
+  report.led_status = openxen_led_status();
   if (!usbd_edpt_xfer(BOARD_TUD_RHPORT, EP_IN_ADDR_STREAM, (uint8_t *)&report, (uint16_t)sizeof(report)))
     usbd_edpt_release(BOARD_TUD_RHPORT, EP_IN_ADDR_STREAM);
 }
