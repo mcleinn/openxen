@@ -60,12 +60,14 @@ def write_tables() -> None:
                 "bus_width": 12, "wire_width": 6, "line_style": 0, "pcb_color": "rgba(0, 0, 0, 0.000)", "schematic_color": "rgba(0, 0, 0, 0.000)"}
     # Widths from the current budget (hardware/README.md "Net classes"):
     classes: list = []
-    classes.append(cls("Default", 0.25))                      # digital: I2C, selects, SWD, mux outputs
+    # 0.2 mm where tracks must reach the IS31FL3733's 0.4 mm-pitch QFN pads (0.2 wide):
+    # 0.4 - 0.2/2 - 0.2/2 = 0.2 mm clearance; anything wider cannot enter those pads.
+    classes.append(cls("Default", 0.2))                       # digital: I2C, selects, SWD, mux outputs
     classes.append(cls("Analog", 0.25))                       # HEn sensor outputs: keep short, over the GND plane
     classes.append(cls("Power5V", 0.8, via=0.8, drill=0.4))   # VBUS/+5V: up to ~0.9 A (sensors via LDO + LED matrix)
     classes.append(cls("Power3V3", 0.5, via=0.6, drill=0.3))  # +3.3V and +3.3VA feeders (pours carry the bulk)
-    classes.append(cls("LED_SW", 0.5, via=0.6, drill=0.3))    # IS31FL3733 sinks: up to 14 x 42 mA peak per line
-    classes.append(cls("LED_CS", 0.3))                        # IS31FL3733 sources: one LED, <= 42 mA peak
+    classes.append(cls("LED_SW", 0.2, via=0.6, drill=0.3))    # sink fan-in to the QFN (the scripted lines are 0.4, route_led_sw.py)
+    classes.append(cls("LED_CS", 0.2))                        # IS31FL3733 sources: one LED, <= 42 mA peak
     classes.append(cls("USB", 0.25, dpw=0.25, dpg=0.2))       # HE60 geometry copied; short run
     classes.append(cls("Plane", 0.5, via=0.6, drill=0.3))     # GND / +3.3VA: inner planes, pads reach them by via (add_plane_vias.py); autorouter ignores them
     patterns = [{"pattern": "HE*", "netclass": "Analog"}, {"pattern": "/HE*", "netclass": "Analog"},

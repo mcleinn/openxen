@@ -101,6 +101,11 @@ def test_planes_present(board, board_nets):
     assert ("GND", "In1.Cu") in zones and ("+3.3VA", "In2.Cu") in zones
 
 
+def length(seg) -> float:
+    (x1, y1), (x2, y2) = sexp.kid(seg, "start")[1:3], sexp.kid(seg, "end")[1:3]
+    return ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
+
+
 def test_track_and_via_sizes(board, board_nets):
     def name(item):
         v = sexp.kid(item, "net")[1]
@@ -110,8 +115,8 @@ def test_track_and_via_sizes(board, board_nets):
         assert w >= MIN_TRACK - 1e-9, (n, w)
         if n in ("+5V", "VBUS"):
             assert w >= 0.5, (n, w)
-        if n.startswith("LED_SW") and sexp.q(s, "layer") == "F.Cu":
-            assert w >= 0.4, (n, w)                                      # 14 LEDs x 42 mA peak per sink line
+        if n.startswith("LED_SW") and sexp.q(s, "layer") == "F.Cu" and length(s) > 10.0:
+            assert w >= 0.4, (n, w)                                      # the long sink lines: 14 LEDs x 42 mA peak
     for v in sexp.kids(board, "via"):
         assert sexp.kid(v, "size")[1] >= MIN_VIA_D and sexp.kid(v, "drill")[1] >= MIN_VIA_DRILL
 

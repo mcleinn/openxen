@@ -25,6 +25,6 @@ MUX_DY = 7.0
 MUX_CAP_DX = 5.4
 
 # JLCPCB standard capabilities used as hard limits (4-layer, 1 oz)
-MIN_TRACK = 0.25          # our own floor (JLC allows 0.09)
+MIN_TRACK = 0.2           # our own floor (JLC allows 0.09); 0.2 needed at the LED driver's 0.4 mm-pitch QFN
 MIN_VIA_DRILL = 0.3
 MIN_VIA_D = 0.5
