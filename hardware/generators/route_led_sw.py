@@ -8,8 +8,9 @@ Topology (layout/module.json "led"): four vertical stripes of 14 keys; stripe g 
 105.6) and the other key column at x_m +- 9.6 in the alternate rows.
 
 Geometry (per key, bottom-side LED at (0, -5.08) relative to the key centre, y down):
-  pad 2 = R cathode (+1.55, -5.63), pad 3 = G (+1.55, -4.53), pad 4 = B (-1.55, -4.53);
-  the cell script leaves 1 mm stubs outward from every pad.
+  pad 1 = anode (-1.55, -4.53), pad 4 = B cathode (-1.55, -5.63), pad 2 = R (+1.55, -4.53),
+  pad 3 = G (+1.55, -5.63) (the LED's bottom view, see the footprint); the cell script leaves
+  1 mm stubs outward from every pad.
   Between the LED and the sensor the band y in (-4.0, -1.6) is free; the top layer is empty
   apart from holes and via barrels.
 
@@ -20,8 +21,10 @@ Routing:
     19.2 / 105.6 columns (0.5 mm).
   * Every LED feeds its three cathodes to the lines on B.Cu and drops a 0.5/0.3 via on the
     line. Middle keys: vias straight on the stubs. Keys left of x_m: R/G feeders run right
-    along the stub rows, B dips under the LED (y - 3.6) and runs right. Keys right of x_m:
-    R/G/B dip into the LED/sensor band (y - 2.2 / -2.9 / -3.6) and run left.
+    along the stub rows. Keys right of x_m: R/G dip into the LED/sensor band (y - 2.9 / -2.2)
+    and run left. B of both side keys leaves its upper-left pad over the top of the LED
+    (y - 6.6, clear of the LED hole and of the M3 screw heads) to the shared via on the B line;
+    going down would cross the anode stub below it.
   * Lines end 1 mm beyond the last via; the LED driver fan-in (12 short connections at the
     bottom-left) is left to the autorouter.
 Re-running deletes all LED_SW copper first (stubs included; they are re-created).
@@ -45,7 +48,8 @@ VIA_D, VIA_DRILL = 0.5, 0.3
 X_MID = {0: 19.2, 1: 48.0, 2: 76.8, 3: 105.6}
 DX = {"R": 2.3, "G": 3.0, "B": -2.3}          # line offsets from x_m
 PAD = {"R": "2", "G": "3", "B": "4"}           # LED pad numbers (Device:LED_ARGB numbering)
-PAD_POS = {"R": (1.55, -5.63), "G": (1.55, -4.53), "B": (-1.55, -4.53)}
+PAD_POS = {"R": (1.55, -4.53), "G": (1.55, -5.63), "B": (-1.55, -5.63)}
+Y_TOP = -6.6        # B lane over the LED for the side keys
 
 
 def mm(x: float, y: float) -> "pcbnew.VECTOR2I":
@@ -113,23 +117,24 @@ class SWRouter:
                 if col in ("R", "G"):
                     self.track(stub_end, (lx, py), net, FEED_W, self.B)
                     vp = (lx, py)
-                else:                                   # B: dip under the LED, run right (same lane as the right key's B)
-                    yl = ky - 3.6
+                else:                                   # B: over the top of the LED, run right (same lane as the right key's B)
+                    yl = ky + Y_TOP
                     self.path([stub_end, (stub_end[0], yl), (lx, yl)], net, FEED_W)
                     vp = (lx, yl)
             else:                                       # right of x_m: everything runs left through the LED/sensor band
-                # lanes from the LED downwards: B -3.6, G -2.9, R -2.2; risers at x +2.55 (B, left
-                # side), +3.3 (G) and +4.05 (R) so no riser crosses another net's lane or stub
+                # R (lower pad) takes the inner riser x +3.3 to lane -2.9, G (upper pad) the
+                # outer riser x +4.05 to lane -2.2, so no riser crosses another net's lane or
+                # stub; B goes over the top like the left key's
                 if col == "R":
-                    yl = ky - 2.2
-                    ext = (stub_end[0] + 1.5, py)
-                    self.path([stub_end, ext, (ext[0], yl), (lx, yl)], net, FEED_W)
-                elif col == "G":
                     yl = ky - 2.9
                     ext = (stub_end[0] + 0.75, py)
                     self.path([stub_end, ext, (ext[0], yl), (lx, yl)], net, FEED_W)
+                elif col == "G":
+                    yl = ky - 2.2
+                    ext = (stub_end[0] + 1.5, py)
+                    self.path([stub_end, ext, (ext[0], yl), (lx, yl)], net, FEED_W)
                 else:
-                    yl = ky - 3.6
+                    yl = ky + Y_TOP
                     self.path([stub_end, (stub_end[0], yl), (lx, yl)], net, FEED_W)
                 vp = (lx, yl)
             self.via(vp, net)

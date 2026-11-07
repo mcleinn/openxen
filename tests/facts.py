@@ -45,10 +45,17 @@ IS31FL3733_SUPPLY = {"PVCC": "+5V", "AVCC": "+5V", "DVCC": "+5V", "VIO": "+3.3V"
                      "PGND": "GND", "AGND": "GND", "GND": "GND"}
 
 # MHT151RGBCT (Meihua LDDS-0002116 rev. 6, p. 2): LED pins 1 = common anode, 2 = blue,
-# 3 = green, 4 = red. Recommended pad pattern: pins 1 and 2 on the same side 1.1 mm apart,
-# pin 4 across from pin 1 (3.1 mm), pin 3 diagonal. Our footprint numbers its pads like
-# KiCad's LED_ARGB symbol (2 = R, 4 = B), so the test checks the geometry, not the numbers.
+# 3 = green, 4 = red. Package BOTTOM view (terminal side): 1 top-left, 2 bottom-left,
+# 4 top-right, 3 bottom-right. Reverse mount: the LED sits on B.Cu with its lens in the hole,
+# so the bottom-side viewer sees this bottom view, and the library drawing (= what a B.Cu
+# footprint looks like from below) must show it. The datasheet's "Recommended Solder Pad"
+# drawing is the lens-side view (mirrored); copying it literally was the rev-1 review finding.
+# Our footprint numbers its pads like KiCad's LED_ARGB symbol (2 = R, 4 = B), so the test
+# checks the geometry: neighbours of the anode pad, and the handedness.
 MHT151_NEIGHBOUR_OF_ANODE = {"near": "B", "across": "R", "diagonal": "G"}
+# z of (anode->blue) x (anode->red) in the library drawing (x right, y down): bottom view
+# 1 TL, 2 BL, 4 TR gives (0, +) x (+, 0) < 0
+MHT151_HANDEDNESS_LIBRARY = -1
 
 # Module supply budget (worst case, datasheet maxima)
 SENSOR_ICC_MAX_MA = 9.0          # GH39FKSW ICC max

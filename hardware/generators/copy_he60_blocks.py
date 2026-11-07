@@ -20,10 +20,10 @@ ROOT = Path(__file__).resolve().parents[2]
 
 # target position (mm, our board) of each block's anchor footprint, all on the bottom side
 TARGETS = {
-    "usb":     ("J1", (48.0, 2.5)),       # USB-C on the top edge, opening outward (HE60 puts J1 2.0 mm from its edge)
+    "usb":     ("J1", (75.0, 2.5)),       # USB-C on the top edge, right half (case bay), opening outward (HE60 puts J1 2.0 mm from its edge)
     "buttons": ("SW1", (55.5, 36.5)),     # BOOT/RESET buttons + pull-down, pocket below keys 3/4 (right of mux AM0)
-    "swd":     ("J3", (54.5, 15.6)),      # TC2030 pads
-    "ldo":     ("U2", (66.0, 13.9)),      # LDOs, ESD, fuse in a row (x 61..85)
+    "swd":     ("J3", (47.0, 5.5)),       # TC2030 pads, top-left corner of the strip
+    "ldo":     ("U2", (46.0, 13.9)),      # LDOs, ESD, fuse in a row (x 42..64)
     "mcu":     ("U4", (97.5, 9.5)),       # MCU + crystal + decoupling, right end of the strip
 }
 

@@ -7,7 +7,7 @@ VBUS carries the whole module (sensors + LEDs, about 1 A). Left to the autoroute
 a 27 mm long 0.2 mm track squeezed between signal lines. This draws it at 0.8 mm on F.Cu
 (free in this strip: the controller parts are on B.Cu) from J1's VBUS via (HE60 block) to
 two 0.8/0.4 vias in a column above the fuse pad F1.1, tied to it on B.Cu. Idempotent (removes its own
-earlier run: VBUS copper at least 0.8 mm wide east of J1).
+earlier run: VBUS copper at least 0.8 mm wide).
 """
 from __future__ import annotations
 
@@ -53,7 +53,8 @@ def main() -> int:
         t = pcbnew.PCB_TRACK(b); t.SetStart(mm(*a)); t.SetEnd(mm(*c))
         t.SetWidth(pcbnew.FromMM(W)); t.SetLayer(layer); t.SetNet(net); b.Add(t); n += 1
 
-    corner = (fx - (vys[0] - Y_RUN), Y_RUN)
+    side = 1 if x_start > fx else -1                           # J1 east or west of the fuse
+    corner = (fx + side * (vys[0] - Y_RUN), Y_RUN)
     track((x_start, Y_RUN), corner, pcbnew.F_Cu)
     track(corner, (fx, vys[0]), pcbnew.F_Cu)
     track((fx, vys[0]), (fx, vys[1]), pcbnew.F_Cu)

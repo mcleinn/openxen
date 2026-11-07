@@ -187,23 +187,45 @@ def _pad_net(pad, board_nets):
 
 
 def test_led_pads_follow_datasheet_pinout(footprints, board_nets, spec, keys):
-    """MHT151RGBCT: the anode pad's close neighbour must carry the blue line, the pad across
-    the hole the red line, the diagonal one green (datasheet pad pattern, facts.py). Catches
-    a footprint whose pad numbers do not match the part's pins."""
-    from facts import MHT151_NEIGHBOUR_OF_ANODE
+    """MHT151RGBCT: the anode pad's close neighbour carries the blue line, the pad across the
+    hole the red line, the diagonal one green, and the pattern has the handedness of the LED's
+    bottom view (facts.py). Distances alone cannot tell a mirrored footprint, the handedness
+    can: a mirrored pattern puts the anode on a sink line and no LED lights."""
+    from facts import MHT151_HANDEDNESS_LIBRARY, MHT151_NEIGHBOUR_OF_ANODE
+    from conftest import ROOT
+    lib = sexp.loads((ROOT / "hardware" / "kicad" / "lib" / "openxen.pretty" / "LED_RGB_1206R_MHT151RGBCT.kicad_mod").read_text(encoding="utf-8"))
     L = spec["led"]
-    for n in keys:
-        fp = footprints[f"D{n}"]
+
+    def pattern(fp):
         pads = {_num(p): p for p in sexp.kids(fp, "pad") if _num(p) in ("1", "2", "3", "4")}
-        pos = {k: sexp.kid(p, "at")[1:3] for k, p in pads.items()}
-        assert _pad_net(pads["1"], board_nets) == f"LED_CS{L['key_cs'][str(n)]}", n
+        return pads, {k: sexp.kid(p, "at")[1:3] for k, p in pads.items()}
+
+    def roles(pos):
         ax, ay = pos["1"]
+        out = {}
         for k in ("2", "3", "4"):
             dx, dy = abs(pos[k][0] - ax), abs(pos[k][1] - ay)
-            rel = "near" if dx < 0.5 else "across" if dy < 0.5 else "diagonal"
-            col = MHT151_NEIGHBOUR_OF_ANODE[rel]
+            out[MHT151_NEIGHBOUR_OF_ANODE["near" if dx < 0.5 else "across" if dy < 0.5 else "diagonal"]] = k
+        return out
+
+    def handedness(pos, r):
+        (ax, ay), (bx, by), (rx, ry) = pos["1"], pos[r["B"]], pos[r["R"]]
+        z = (bx - ax) * (ry - ay) - (by - ay) * (rx - ax)
+        return 1 if z > 0 else -1
+
+    _, lpos = pattern(lib)
+    assert handedness(lpos, roles(lpos)) == MHT151_HANDEDNESS_LIBRARY, "LED footprint drawn mirrored"
+    for n in keys:
+        fp = footprints[f"D{n}"]
+        assert sexp.q(fp, "layer") == "B.Cu", n
+        pads, pos = pattern(fp)
+        r = roles(pos)
+        # the board file stores a flipped footprint's pads mirrored in y
+        assert handedness(pos, r) == -MHT151_HANDEDNESS_LIBRARY, n
+        assert _pad_net(pads["1"], board_nets) == f"LED_CS{L['key_cs'][str(n)]}", n
+        for col, k in r.items():
             want = f"LED_SW{L['sw_lines'][str(L['key_group'][str(n)])][col]}"
-            assert _pad_net(pads[k], board_nets) == want, (n, k, rel, col)
+            assert _pad_net(pads[k], board_nets) == want, (n, k, col)
 
 
 def test_sensor_pin_one_geometry(footprints):

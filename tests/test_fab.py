@@ -16,7 +16,7 @@ from conftest import ROOT
 
 PROD = ROOT / "build" / "fab" / "production"
 DB = ROOT / "reference" / "jlcparts" / "cache.sqlite3"
-BOARDS_TO_ASSEMBLE = 2          # first order: 5 PCBs, 2 assembled (PROJECT_PLAN phase 6)
+BOARDS_TO_ASSEMBLE = 5          # first order: 5 PCBs, all 5 assembled (PROJECT_PLAN phase 6)
 NOT_ASSEMBLED = re.compile(r"^(K|H|TP|J3)\d*$")   # switches, holes, test pads, TC2030 pads
 
 
