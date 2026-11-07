@@ -6,7 +6,8 @@
 Works in build/fw/libhmk, a local clone of reference/repos/libhmk checked out at the pinned
 commit, so the reference clone stays pristine and our own sources stay in firmware/:
   1. clone / reset build/fw/libhmk to LIBHMK_COMMIT
-  2. copy firmware/keyboards/openxen-m56 into its keyboards/
+  2. copy firmware/keyboards/openxen-m56 into its keyboards/ and apply firmware/libhmk/apply_openxen.py
+     (analog stream sources + exact search/replace edits)
   3. python setup.py -k openxen-m56  (writes platformio.ini)
   4. pio run  ->  build/fw/libhmk/.pio/build/openxen-m56/firmware.{elf,bin}
   5. copy firmware.bin / .elf / the size report to build/fw/
@@ -51,6 +52,7 @@ def main() -> int:
     run(["git", "checkout", "--quiet", "--force", LIBHMK_COMMIT], WORK)
     run(["git", "clean", "-fdq", "-e", ".pio", "-e", "lib"], WORK)        # keep PlatformIO's caches
     shutil.copytree(ROOT / "firmware" / "keyboards" / BOARD, WORK / "keyboards" / BOARD, dirs_exist_ok=True)
+    run([sys.executable, str(ROOT / "firmware" / "libhmk" / "apply_openxen.py"), str(WORK)], ROOT)   # analog stream
     run([sys.executable, "setup.py", "-k", BOARD], WORK)
     t0 = time.time()
     r = run([str(PIO), "run", "-e", BOARD], WORK)
