@@ -18,7 +18,7 @@
     "driver": "at32f405xx"
   },
   "analog": {
-    "invert_adc": false,
+    "invert_adc": true,
     "mux": {
       "select": [
         "C1",

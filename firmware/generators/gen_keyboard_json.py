@@ -13,12 +13,14 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = ROOT / "layout" / "module.json"
+PARTS = ROOT / "hardware" / "parts.json"
 OUT_DIR = ROOT / "firmware" / "keyboards" / "openxen-m56"
 LIBHMK = ROOT / "reference" / "repos" / "libhmk"
 
 
 def main() -> int:
     s = json.loads(SPEC.read_text(encoding="utf-8"))
+    sensor = json.loads(PARTS.read_text(encoding="utf-8"))["parts"]["sensor"]   # polarity belongs to the sensor part
     keys = sorted(s["keys"], key=lambda k: k["id"])
     rows: dict[int, list[dict]] = {}
     for k in keys:
@@ -45,7 +47,7 @@ def main() -> int:
         "keyboard": {"num_profiles": 2, "num_layers": 2, "num_keys": 56, "num_advanced_keys": 8},
         "hardware": {"hse_value": 12000000, "driver": "at32f405xx"},
         "analog": {
-            "invert_adc": False,
+            "invert_adc": bool(sensor["invert_adc"]),
             "mux": {
                 "select": s["mux"]["select_pins"],
                 "input": s["mux"]["input_pins"],

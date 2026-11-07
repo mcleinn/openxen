@@ -62,6 +62,8 @@ def main() -> int:
     errs = [v for v in d["violations"] if v["severity"] == "error"]
     print("DRC errors:", len(errs), dict(collections.Counter(v["type"] for v in errs)))
     print("unconnected:", len(d.get("unconnected_items", [])), "parity:", len(d.get("schematic_parity", [])))
+    run([sys.executable, str(G.parents[1] / "firmware" / "generators" / "gen_keyboard_json.py")], "firmware keyboard.json")
+    run([sys.executable, "-m", "pytest", "-q", str(G.parents[1] / "tests")], "consistency tests (tests/)")
     return 0
 
 

@@ -3,7 +3,7 @@
   "parts": {
     "mcu": {"lcsc": "C47090415", "mpn": "AT32F405RCT7", "value": "AT32F405RCT7", "footprint": "Package_QFP:LQFP-64_10x10mm_P0.5mm", "type": "expand", "stock_2026_11_06": 66,
             "note": "HE60 v2 MCU. Low stock; alternative AT32F405RCT7-7 (LQFP-64 7x7, C19674180, 176 pcs) needs a footprint swap."},
-    "sensor": {"lcsc": "C266230", "mpn": "GH39FKSW", "value": "GH39FKSW", "footprint": "Package_TO_SOT_SMD:SOT-23", "type": "expand", "stock_2026_11_06": 5300,
+    "sensor": {"lcsc": "C266230", "mpn": "GH39FKSW", "value": "GH39FKSW", "footprint": "Package_TO_SOT_SMD:SOT-23", "type": "expand", "stock_2026_11_06": 5300, "invert_adc": true,
                "note": "HE60-listed sensor (README: 'Cheapest, Inverted' -> invert_adc=true). 1.8 mV/Gs @5 V, 6 mA. MT9102ET (HE60 default) is not in JLCPCB's catalogue."},
     "mux": {"lcsc": "C7793", "mpn": "SN74LV4051APWR", "value": "SN74LV4051A", "footprint": "Package_SO:TSSOP-16_4.4x5mm_P0.65mm", "type": "expand", "stock_2026_11_06": 3475, "note": "HE60"},
     "ldo_3v3": {"lcsc": "C5446", "mpn": "XC6206P332MR-G", "value": "XC6206P332MR-G", "footprint": "Package_TO_SOT_SMD:SOT-23", "type": "base", "note": "HE60 digital 3.3 V"},

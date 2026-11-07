@@ -9,6 +9,7 @@ translated by (target - anchor). Nets are matched by name (our schematic copies 
 from __future__ import annotations
 
 import argparse
+import math
 import json
 import sys
 from pathlib import Path
@@ -109,13 +110,45 @@ def main() -> int:
         if not reaches_pad(t):
             b.Remove(t)
             dropped += 1
-    # prune dangling leaf tracks iteratively (stubs that led to other HE60 regions)
+    # prune dangling leaf tracks and dead-end vias iteratively (stubs that led to other HE60
+    # regions). Geometric test, because pcbnew's TestTrackEndpointDangling missed a stub that
+    # ended under U4 (HE60's NRST via to its top layer): every track end must touch a same-net
+    # pad on its layer, a via, or another track; every via needs two connections.
+    pads = [(p, p.GetNetCode()) for fp in b.GetFootprints() for p in fp.Pads()]
+
+    def seg_dist(pt, a, c) -> float:
+        ax, ay, cx, cy, px, py = a.x, a.y, c.x, c.y, pt.x, pt.y
+        dx, dy = cx - ax, cy - ay
+        L = dx * dx + dy * dy
+        t = 0.0 if L == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / L))
+        return math.hypot(px - (ax + t * dx), py - (ay + t * dy))
+
+    def touches(pt, layer, net, me) -> int:
+        n = 0
+        for pad, pn in pads:
+            if pn == net and pad.IsOnLayer(layer) and pad.HitTest(pt, 0):
+                n += 1
+        me_id = me.m_Uuid.AsString()
+        for o in b.GetTracks():
+            if o.GetNetCode() != net or o.m_Uuid.AsString() == me_id:   # SWIG proxies: compare by UUID, not identity
+                continue
+            if o.Type() == pcbnew.PCB_VIA_T:
+                if math.hypot(o.GetPosition().x - pt.x, o.GetPosition().y - pt.y) <= o.GetWidth(layer) / 2:
+                    n += 1
+            elif o.GetLayer() == layer and seg_dist(pt, o.GetStart(), o.GetEnd()) <= o.GetWidth() / 2:
+                n += 1
+        return n
+
     while True:
-        b.BuildConnectivity()
-        conn = b.GetConnectivity()
-        leaf = [t for t in b.GetTracks() if t.Type() == pcbnew.PCB_TRACE_T and conn.TestTrackEndpointDangling(t, False)]
-        # vias left with a single connection are dead ends too
-        leaf += [v for v in b.GetTracks() if v.Type() == pcbnew.PCB_VIA_T and (len(conn.GetConnectedTracks(v)) + len(conn.GetConnectedPads(v))) < 2]
+        leaf = []
+        for t in b.GetTracks():
+            if t.Type() == pcbnew.PCB_TRACE_T:
+                if not touches(t.GetStart(), t.GetLayer(), t.GetNetCode(), t) or not touches(t.GetEnd(), t.GetLayer(), t.GetNetCode(), t):
+                    leaf.append(t)
+            elif t.Type() == pcbnew.PCB_VIA_T:
+                hits = sum(touches(t.GetPosition(), lay, t.GetNetCode(), t) for lay in (pcbnew.F_Cu, pcbnew.B_Cu))
+                if hits < 2:
+                    leaf.append(t)
         if not leaf:
             break
         for t in leaf:
