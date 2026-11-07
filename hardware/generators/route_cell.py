@@ -129,8 +129,17 @@ class CellRouter:
             v = (g[0] + sgn * 0.9, g[1] + 0.9)
             self.track(g, v, gnd_net, POWER_W)
             self.via(v, gnd_net, self.L2)
-        # OUT: sensor pad 2 -> filter cap; the fan-in to the mux starts at the cap pad (route_fanin.py)
+        # OUT: sensor pad 2 -> filter cap
         self.route45(out_p, cf_out, out_net, TRACK_W)
+        # OUT escape: on B.Cu the output is enclosed (GND bar below, guide hole + GND via to the
+        # right, LED sink lanes above for keys right of their stripe centre), so it leaves the
+        # cell through a via to F.Cu, which runs over the GND plane. Middle keys of a stripe have
+        # sink lines at x +-2.3 / +3.0 on F.Cu: their via sits in the pocket between them.
+        g = SPEC["led"]["key_group"][str(n)]
+        middle = abs(cx - (19.2 + 28.8 * g)) < 0.01
+        esc = (cx + 1.55, cy - 2.4) if middle else (cx + 1.8, cy - 1.5)
+        self.track(out_p, esc, out_net, TRACK_W)
+        self.via(esc, out_net, pcbnew.F_Cu)
         # LED: stubs outward (anode/CS to the left, cathodes/SW to the right / up), 1.0 mm
         for num, (p, net) in d.items():
             sx = -1 if p[0] < cx else 1

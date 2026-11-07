@@ -34,7 +34,8 @@ def test_schematic_parity(drc):
 
 def test_drc_warnings_known(drc):
     """Only known warning kinds: the 1 mm LED anode stubs awaiting their lines, the sink lines'
-    open end toward the driver, and HE60's USB-C silk touching the board edge."""
+    open end toward the driver, the sensor escape vias awaiting the fan-in, and HE60's USB-C
+    silk touching the board edge."""
     for v in drc["violations"]:
         if v["severity"] != "warning":
             continue
@@ -42,6 +43,9 @@ def test_drc_warnings_known(drc):
             d = v["items"][0]["description"]
             # LED anode stubs (B.Cu, 1 mm) and the sink lines' open end toward the driver (F.Cu)
             assert re.search(r"\[LED_CS\d+\] on B\.Cu, length 1[,.]0000 mm", d) or re.search(r"\[LED_SW\d+\] on F\.Cu", d), d
+        elif v["type"] == "via_dangling":
+            # sensor-output escape vias (route_cell.py) wait for the fan-in on F.Cu
+            assert re.search(r"Via \[HE\d+\]", v["items"][0]["description"]), v["items"][0]["description"]
         elif v["type"] == "silk_edge_clearance":
             assert any("J1" in i["description"] for i in v["items"])
         else:
