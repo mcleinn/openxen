@@ -38,10 +38,15 @@ def main() -> int:
         led = uc["led"]
         ax.add_patch(Circle((x + led["x"], y + led["y"]), led["hole_d"] / 2, fill=False, ec="red", lw=0.6))
         ax.text(x, y + 4.5, str(k["id"]), ha="center", va="center", fontsize=5)
+    kb = {k["id"]: k for k in s["keys"]}
     for m in s["mux"]["groups"]:
-        cx, cy = m["centroid"]
-        ax.plot(cx, cy, marker="s", ms=7, color=cmap(m["index"]), mec="black")
-        ax.text(cx + 2.2, cy, f"MUX{m['index']}", fontsize=5, va="center")
+        mx, my = m["pos"]
+        for ch, kid in enumerate(m["keys"]):                      # analog path (straight line) and channel
+            k = kb[kid]
+            ax.plot([k["x"] + 3.3, mx], [k["y"], my], color=cmap(m["index"]), lw=0.4, alpha=0.7)
+            ax.text(k["x"] + 3.3, k["y"] + 1.6, f"Y{ch}", fontsize=4, color=cmap(m["index"]))
+        ax.add_patch(Rectangle((mx - 2.9, my - 2.5), 5.8, 5.0, fill=True, fc=cmap(m["index"]), ec="black", lw=0.6))
+        ax.text(mx + 3.4, my, f"MUX{m['index']}", fontsize=5, va="center")
     for z in s["controller_zones"]:
         ax.add_patch(Rectangle((z["x0"], z["y0"]), z["x1"] - z["x0"], z["y1"] - z["y0"], fill=True,
                                fc="green" if z["preferred"] else "orange", alpha=0.15, ec="green" if z["preferred"] else "orange", ls="--"))

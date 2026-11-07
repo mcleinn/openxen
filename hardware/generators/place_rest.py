@@ -43,11 +43,10 @@ def main() -> int:
     keys = {k["id"]: k for k in SPEC["keys"]}
     # muxes: nearest key to the group centroid, but prefer a key whose south band is inside the board
     for g in SPEC["mux"]["groups"]:
-        cx, cy = g["centroid"]
-        host = min((keys[i] for i in g["keys"]), key=lambda k: math.hypot(k["x"] - cx, k["y"] - cy))
-        put(b, f"AM{g['index']}", host["x"], host["y"] + MUX_DY, 0)       # pin rows vertical at x +-2.9
-        put(b, f"CM{g['index']}", host["x"] + CAP_DX, host["y"] + MUX_DY, 90)
-        print(f"mux {g['index']} under key {host['id']} at ({host['x']:.1f},{host['y'] + MUX_DY:.1f})")
+        mx, my = g["pos"]                                                 # chosen by build_spec.py (host key + MUX_DY)
+        put(b, f"AM{g['index']}", mx, my, 0)                              # pin rows vertical at x +-2.9
+        put(b, f"CM{g['index']}", mx + CAP_DX, my, 90)
+        print(f"mux {g['index']} under key {g['host_key']} at ({mx:.1f},{my:.1f})")
     # LED driver block in the bottom-left strip (x 10.8..84.8, y 190.7..210.2)
     x0, y0 = 40.0, 200.0   # clear of mounting hole H4 at (19.2, 192)
     put(b, "U10", x0, y0, 0)

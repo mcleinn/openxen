@@ -78,12 +78,59 @@ def nominal_xy(row: int, dcol: int) -> tuple[float, float]:
     return STAGGER + dcol * STAGGER, STAGGER + row * PITCH
 
 
-def assign_muxes(keys: list[dict]) -> None:
-    """Group keys into 7 spatially compact octets, 8 keys each (row-major chunks)."""
-    order = sorted(keys, key=lambda k: (k["y"], k["x"]))
-    for i, k in enumerate(order):
-        k["mux"] = i // 8
-        k["mux_channel"] = i % 8
+# SN74LV4051A on the bottom side, rotation 0 as placed by place_rest.py: pins 1-8 form the left
+# column (x - 2.86), pins 9-16 the right column (x + 2.86). Inputs top to bottom:
+#   left  column: Y5 (pin 5), Y7 (pin 4), [Z pin 3], Y6 (pin 2), Y4 (pin 1)
+#   right column: [S2 S1 S0 pins 9-11], Y3 (pin 12), Y0 (pin 13), Y1 (pin 14), Y2 (pin 15)
+LEFT_CHANNELS = [5, 7, 6, 4]
+RIGHT_CHANNELS = [3, 0, 1, 2]
+MUX_DY = 7.0      # mux centre below its host key (must match place_rest.py)
+
+
+def assign_muxes(keys: list[dict]) -> list[dict]:
+    """7 spatially compact clusters of exactly 8 keys (capacitated k-means: Lloyd iterations
+    with an optimal assignment of 8 slots per centre), so every sensor's analog path to its
+    mux is short. The mux sits under the key nearest the cluster centre; channels are
+    assigned so the 4 leftmost keys use the left pin column and the others the right one,
+    each side ordered top to bottom like the pins (no crossings at the mux).
+    Returns the mux records (index, host key, position, keys by channel)."""
+    import numpy as np
+    from scipy.optimize import linear_sum_assignment
+
+    pts = np.array([[k["x"], k["y"]] for k in keys])
+    best = None
+    for seed in range(40):
+        rng = np.random.default_rng(seed)
+        centres = pts[rng.choice(len(pts), 7, replace=False)]
+        for _ in range(60):
+            cost = ((pts[:, None, :] - centres[None, :, :]) ** 2).sum(-1)       # 56 x 7
+            rows, cols = linear_sum_assignment(np.repeat(cost, 8, axis=1))      # 56 x 56 (8 slots each)
+            label = np.empty(len(pts), dtype=int)
+            label[rows] = cols // 8
+            new = np.array([pts[label == m].mean(0) for m in range(7)])
+            if np.allclose(new, centres):
+                break
+            centres = new
+        total = float(((pts - centres[label]) ** 2).sum())
+        if best is None or total < best[0] - 1e-9:
+            best = (total, label.copy(), centres.copy())
+    _, label, centres = best
+    # stable mux numbering: top to bottom, then left to right by centre
+    order = sorted(range(7), key=lambda m: (round(centres[m][1] / 19.2), centres[m][0]))
+    muxes = []
+    for idx, m in enumerate(order):
+        ks = [k for k, l in zip(keys, label) if l == m]
+        cx, cy = centres[m]
+        host = min(ks, key=lambda k: (k["x"] - cx) ** 2 + (k["y"] - cy) ** 2)
+        left = sorted(sorted(ks, key=lambda k: (k["x"], k["y"]))[:4], key=lambda k: (k["y"], k["x"]))
+        right = sorted([k for k in ks if k not in left], key=lambda k: (k["y"], k["x"]))
+        for k, ch in zip(left, LEFT_CHANNELS):
+            k["mux"], k["mux_channel"] = idx, ch
+        for k, ch in zip(right, RIGHT_CHANNELS):
+            k["mux"], k["mux_channel"] = idx, ch
+        muxes.append({"index": idx, "host_key": host["id"], "pos": [host["x"], round(host["y"] + MUX_DY, 3)],
+                      "centroid": [round(float(cx), 2), round(float(cy), 2)]})
+    return muxes
 
 
 def main() -> int:
@@ -100,15 +147,11 @@ def main() -> int:
             return 1
         keys.append({"id": kid, "hex": [row, dcol], "x": round(x, 3), "y": round(y, 3),
                      "freexen_ref": near["ref"], "freexen_dev_mm": round(dev, 3)})
-    assign_muxes(keys)
-
-    # Mux centroids (for placing each 74LV4051 near its keys).
-    muxes = []
-    for m in range(7):
-        ks = [k for k in keys if k["mux"] == m]
-        muxes.append({"index": m, "input_pin": MUX["input_pins"][m],
-                      "centroid": [round(sum(k["x"] for k in ks) / 8, 2), round(sum(k["y"] for k in ks) / 8, 2)],
-                      "keys": [k["id"] for k in sorted(ks, key=lambda k: k["mux_channel"])]})
+    muxes = assign_muxes(keys)
+    for m in muxes:
+        ks = [k for k in keys if k["mux"] == m["index"]]
+        m["input_pin"] = MUX["input_pins"][m["index"]]
+        m["keys"] = [k["id"] for k in sorted(ks, key=lambda k: k["mux_channel"])]   # index = channel
 
     # libhmk matrix: rows = select value 0..7, cols = mux input 0..6, values = key id + 1 (0 = unused).
     matrix = [[0] * 7 for _ in range(8)]
@@ -156,7 +199,9 @@ def main() -> int:
     OUT.write_text(json.dumps(spec, indent=1), encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)}: {len(keys)} keys, worst key deviation {worst:.3f} mm, {len(holes)} holes, {len(ext['outline'])} outline vertices")
     for m in muxes:
-        print(f"  mux {m['index']} ({m['input_pin']}) centroid {m['centroid']} keys {m['keys']}")
+        kb = {k["id"]: k for k in keys}
+        span = max(math.hypot(kb[i]["x"] - m["pos"][0], kb[i]["y"] - m["pos"][1]) for i in m["keys"])
+        print(f"  mux {m['index']} ({m['input_pin']}) at {m['pos']} under key {m['host_key']}, keys by channel {m['keys']}, farthest key {span:.1f} mm")
     return 0
 
 
