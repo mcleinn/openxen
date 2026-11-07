@@ -28,3 +28,29 @@ MUX_CAP_DX = 5.4
 MIN_TRACK = 0.2           # our own floor (JLC allows 0.09); 0.2 needed at the LED driver's 0.4 mm-pitch QFN
 MIN_VIA_DRILL = 0.3
 MIN_VIA_D = 0.5
+
+# IS31FL3733 QFN-48 (Lumissil rev. G, "Pin configuration", p. 3): pin number -> datasheet name.
+# The KiCad symbol calls pin 35 RSET (datasheet R_EXT); pin 49 is the exposed thermal pad.
+IS31FL3733_PIN = {
+    1: "NC", 2: "SW1", 3: "SW2", 4: "SW3", 5: "PGND", 6: "SW4", 7: "SW5", 8: "SW6", 9: "SW7",
+    10: "SW8", 11: "SW9", 12: "PGND", 13: "SW10", 14: "SW11", 15: "SW12",
+    16: "CS1", 17: "CS2", 18: "CS3", 19: "CS4", 20: "PVCC", 21: "CS5", 22: "CS6", 23: "CS7",
+    24: "CS8", 25: "CS9", 26: "CS10", 27: "CS11", 28: "CS12", 29: "PVCC", 30: "CS13", 31: "CS14",
+    32: "CS15", 33: "CS16", 34: "AGND", 35: "R_EXT", 36: "NC", 37: "AVCC", 38: "DVCC", 39: "VIO",
+    40: "SYNC", 41: "SDA", 42: "SCL", 43: "ADDR1", 44: "ADDR2", 45: "INTB", 46: "SDB",
+    47: "IICRST", 48: "GND",
+}
+# Supplies: PVCC/AVCC/DVCC from 5 V (2.7-5.5 V); VIO = the MCU's logic high (datasheet note 3)
+IS31FL3733_SUPPLY = {"PVCC": "+5V", "AVCC": "+5V", "DVCC": "+5V", "VIO": "+3.3V",
+                     "PGND": "GND", "AGND": "GND", "GND": "GND"}
+
+# MHT151RGBCT (Meihua LDDS-0002116 rev. 6, p. 2): LED pins 1 = common anode, 2 = blue,
+# 3 = green, 4 = red. Recommended pad pattern: pins 1 and 2 on the same side 1.1 mm apart,
+# pin 4 across from pin 1 (3.1 mm), pin 3 diagonal. Our footprint numbers its pads like
+# KiCad's LED_ARGB symbol (2 = R, 4 = B), so the test checks the geometry, not the numbers.
+MHT151_NEIGHBOUR_OF_ANODE = {"near": "B", "across": "R", "diagonal": "G"}
+
+# Module supply budget (worst case, datasheet maxima)
+SENSOR_ICC_MAX_MA = 9.0          # GH39FKSW ICC max
+MCU_MISC_MA = 60.0               # AT32F405 + muxes + LED driver logic (estimate, generous)
+PTC_HOLD_DERATING = 0.8          # polyfuse hold current at ~50 C board temperature

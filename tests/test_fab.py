@@ -102,3 +102,21 @@ def test_npth_holes(prod):
         elif line.startswith("X") and current:
             hits[float(tools[current])] += 1
     assert hits[1.75] == 112 and hits[2.1] == 56 and hits[3.2] == 8, dict(hits)
+
+
+def test_fuse_carries_worst_case_module_current():
+    """F1 (polyfuse) must hold the worst-case module current when warm: 56 sensors at their
+    maximum ICC + the LED driver at the firmware's hard current cap + MCU and logic."""
+    import json as _json
+    from facts import MCU_MISC_MA, PTC_HOLD_DERATING, SENSOR_ICC_MAX_MA
+    if not DB.exists():
+        pytest.skip("jlcparts database snapshot not present")
+    hdr = (ROOT / "firmware" / "libhmk" / "include" / "openxen_led.h").read_text(encoding="utf-8")
+    led_ma = int(re.search(r"#define OXL_BUDGET_MAX_MA (\d+)u", hdr).group(1))
+    worst = 56 * SENSOR_ICC_MAX_MA + led_ma + MCU_MISC_MA
+    parts = _json.loads((ROOT / "hardware" / "parts.json").read_text(encoding="utf-8"))
+    lcsc = int(parts["parts"]["polyfuse"]["lcsc"][1:]) if "parts" in parts else int(parts["polyfuse"]["lcsc"][1:])
+    attrs = _json.loads(sqlite3.connect(DB).execute("select attributes from jlc_components where lcsc=?", (lcsc,)).fetchone()[0])
+    m = re.match(r"([\d.]+)(m?)A", attrs["Hold Current"])
+    hold_ma = float(m.group(1)) * (1 if m.group(2) else 1000)
+    assert hold_ma * PTC_HOLD_DERATING >= worst, (hold_ma, worst)

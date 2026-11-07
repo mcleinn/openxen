@@ -72,3 +72,22 @@ def test_erc_clean(erc):
     errors = [x for x in v if x["severity"] == "error"]
     assert not errors, errors[:5]
     assert {x["type"] for x in v} <= {"lib_symbol_mismatch"}, {x["type"] for x in v}
+
+
+def test_led_driver_pins_match_datasheet(netlist, pin_net):
+    """Every IS31FL3733 pin by number (not by symbol name) against the datasheet, its supplies,
+    the unused pins and the I2C-reset pull-down."""
+    from facts import IS31FL3733_PIN, IS31FL3733_SUPPLY
+    u10 = {int(pin): (fn.replace("~{", "").replace("}", ""), name)
+           for name, nodes in netlist.items() for ref, pin, fn in nodes if ref == "U10"}
+    for pin, ds in IS31FL3733_PIN.items():
+        fn, net = u10[pin]
+        assert fn == {"R_EXT": "RSET"}.get(ds, ds), (pin, fn, ds)
+        if ds in IS31FL3733_SUPPLY:
+            assert net == IS31FL3733_SUPPLY[ds], (pin, ds, net)
+        if ds == "NC":
+            assert net.startswith("unconnected"), (pin, net)
+    assert u10[49][1] == "GND"                                       # exposed pad
+    # IICRST must be pulled low in operation: a resistor from LED_IICRST to GND
+    others = [(ref, pin) for ref, pin, _ in netlist["LED_IICRST"] if ref != "U10"]
+    assert any(ref.startswith("R") and pin_net[(ref, "2" if pin == "1" else "1")] == "GND" for ref, pin in others), others

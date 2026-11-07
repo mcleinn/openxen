@@ -172,3 +172,44 @@ def test_led_sink_lines_reach_every_led(drc, keys, footprints):
             per[m.group(1)] += 1
             assert any("U10" in d for d in descs) or any(near_driver(i["pos"], footprints) for i in u["items"]), descs  # the only gap is at the driver
     assert all(per[f"LED_SW{s}"] <= 1 for s in range(12)), per
+
+
+def _num(pad) -> str:
+    return str(getattr(pad[1], "s", pad[1]))
+
+
+def _pad_net(pad, board_nets):
+    n = sexp.kid(pad, "net")
+    if n is None:
+        return None
+    v = n[2] if len(n) > 2 else board_nets.get(n[1], n[1])
+    return getattr(v, "s", v)
+
+
+def test_led_pads_follow_datasheet_pinout(footprints, board_nets, spec, keys):
+    """MHT151RGBCT: the anode pad's close neighbour must carry the blue line, the pad across
+    the hole the red line, the diagonal one green (datasheet pad pattern, facts.py). Catches
+    a footprint whose pad numbers do not match the part's pins."""
+    from facts import MHT151_NEIGHBOUR_OF_ANODE
+    L = spec["led"]
+    for n in keys:
+        fp = footprints[f"D{n}"]
+        pads = {_num(p): p for p in sexp.kids(fp, "pad") if _num(p) in ("1", "2", "3", "4")}
+        pos = {k: sexp.kid(p, "at")[1:3] for k, p in pads.items()}
+        assert _pad_net(pads["1"], board_nets) == f"LED_CS{L['key_cs'][str(n)]}", n
+        ax, ay = pos["1"]
+        for k in ("2", "3", "4"):
+            dx, dy = abs(pos[k][0] - ax), abs(pos[k][1] - ay)
+            rel = "near" if dx < 0.5 else "across" if dy < 0.5 else "diagonal"
+            col = MHT151_NEIGHBOUR_OF_ANODE[rel]
+            want = f"LED_SW{L['sw_lines'][str(L['key_group'][str(n)])][col]}"
+            assert _pad_net(pads[k], board_nets) == want, (n, k, rel, col)
+
+
+def test_sensor_pin_one_geometry(footprints):
+    """SOT-23: pads 1 (VDD) and 2 (OUT) on one side, pad 3 (GND) alone on the other."""
+    for ref, fp in footprints.items():
+        if not re.fullmatch(r"HE\d+", ref):
+            continue
+        pos = {_num(p): sexp.kid(p, "at")[1:3] for p in sexp.kids(fp, "pad")}
+        assert pos["1"][0] == pytest.approx(pos["2"][0]) and abs(pos["3"][0] - pos["1"][0]) > 1.5, ref

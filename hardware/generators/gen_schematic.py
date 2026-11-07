@@ -207,7 +207,7 @@ def main() -> int:
             add_lcsc(item)
     sh_ctrl.used_libs = {("openxen:" + l.split(":", 1)[1]) if l.startswith("HE60:") else l for l in sh_ctrl.used_libs}
     patch_controller(sh_ctrl, libs)
-    sh_ctrl.text("Copied from HE60 v2.1 (GPL-3.0). Changes: F1 1 A fuse, J2 not populated, PB6/PB7 = LED driver I2C, PC0 = LED_SDB, MUX_OUT_8/9 unused.", 20.32, 22.86, 2.0)
+    sh_ctrl.text("Copied from HE60 v2.1 (GPL-3.0). Changes: F1 2 A fuse, J2 not populated, PB6/PB7 = LED driver I2C, PC0 = LED_SDB, MUX_OUT_8/9 unused.", 20.32, 22.86, 2.0)
     gen_test_points(sh_ctrl, libs)
 
     # ---- 4. LED sheet
