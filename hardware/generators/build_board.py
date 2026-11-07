@@ -3,11 +3,14 @@
 
 Steps: project files -> schematic -> ERC -> netlist -> board with key field -> HE60 controller
 blocks -> muxes and LED driver -> cell routing -> LED sink lines -> plane vias -> silkscreen
--> planes -> [Freerouting (plane nets excluded) -> bottom pour, with --route] -> DRC summary.
+-> planes -> autorouted tracks (hardware/routes/*.routes.json) -> DRC -> firmware -> fab
+files -> tests.
 
-Routing is a pipeline step so a rebuild never silently loses it: `--route` re-runs the
-planes + Freerouting + bottom-pour chain (takes long); without it the board stops after the
-scripted cell routing (fast, for geometry/placement iterations).
+Autorouting (TraceMaker, see .claude/skills/tracemaker or docs/testing.md) runs off-line on
+a copy of this board; an accepted result is captured with import_routes.py --capture and
+replayed here, so a rebuild never silently loses it. If the placement changed since the
+routing, the replay refuses and the board has to be re-routed (`--no-routes` builds the
+unrouted board for that).
 """
 from __future__ import annotations
 
@@ -37,8 +40,7 @@ def run(cmd: list[str], label: str) -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--route", action="store_true", help="planes + Freerouting + bottom pour after the cell routing")
-    ap.add_argument("--passes", type=int, default=40)
+    ap.add_argument("--no-routes", action="store_true", help="skip replaying the autorouted tracks (board for a new routing run)")
     args = ap.parse_args()
     BUILD.mkdir(exist_ok=True)
     run([sys.executable, str(G / "gen_project.py")], "project")
@@ -50,12 +52,18 @@ def main() -> int:
     run([KPY, str(G / "place_rest.py"), "--board", str(PCB)], "muxes + LED driver")
     run([KPY, str(G / "route_cell.py"), "--board", str(PCB), "--all"], "cell routing")
     run([KPY, str(G / "route_led_sw.py"), "--board", str(PCB)], "LED sink lines")
+    run([KPY, str(G / "route_led_driver.py"), "--board", str(PCB)], "LED driver fan-out (U10)")
+    run([KPY, str(G / "route_vbus.py"), "--board", str(PCB)], "VBUS J1 -> F1 (0.8 mm)")
     run([KPY, str(G / "add_plane_vias.py"), "--board", str(PCB)], "+3.3VA pads -> plane vias")
     run([KPY, str(G / "tidy_silk.py"), "--board", str(PCB)], "silkscreen")
     run([KPY, str(G / "add_zones.py"), "--board", str(PCB)], "planes (GND In1, +3.3VA In2)")
-    if args.route:
-        run([KPY, str(G / "freeroute_board.py"), "--board", str(PCB), "--passes", str(args.passes)], "freerouting")
-        run([KPY, str(G / "add_zones.py"), "--board", str(PCB), "--bottom-pour"], "bottom GND pour + refill")
+    import os
+    if args.no_routes:
+        os.environ["OPENXEN_NO_ROUTES"] = "1"     # tests: the unrouted board is expected
+    routes = ROOT / "hardware" / "routes" / "openxen-m56.routes.json"
+    if routes.exists() and not args.no_routes:
+        run([KPY, str(G / "import_routes.py"), "--board", str(PCB), "--routes", str(routes)], "autorouted tracks (TraceMaker)")
+        run([KPY, str(G / "widen_power.py"), "--board", str(PCB)], "widen necked-down power tracks")
     run([KCLI, "pcb", "drc", "--output", str(BUILD / "drc.json"), "--format", "json", "--schematic-parity", "--severity-all", str(PCB)], "drc")
     d = json.loads((BUILD / "drc.json").read_text(encoding="utf-8"))
     import collections

@@ -47,20 +47,19 @@ def main() -> int:
         put(b, f"AM{g['index']}", mx, my, 0)                              # pin rows vertical at x +-2.9
         put(b, f"CM{g['index']}", mx + CAP_DX, my, 90)
         print(f"mux {g['index']} under key {g['host_key']} at ({mx:.1f},{my:.1f})")
-    # LED driver block in the bottom-left strip (x 10.8..84.8, y 190.7..210.2). The QFN's left,
-    # top and right edges carry the 26 LED lines (SW1-9 left; SW10-12, CS1-8 top; CS9-14 right),
-    # so every support part sits below it, next to the bottom-edge pins it serves (DVCC/AVCC
-    # 37/38, VIO 39, I2C/SDB/INTB/IICRST/SYNC, REXT at the bottom-right corner).
+    # LED driver block in the bottom-left strip (x 10.8..84.8, y 190.7..210.2). All four QFN
+    # edges are fanned out by route_led_driver.py (LED lines left/top/right, supply and control
+    # pins at the bottom), so the support parts sit in one row below the bottom fan-out vias:
+    # decoupling caps under the chip (DVCC/AVCC 37/38, VIO 39), the I2C/SDB/INTB/IICRST/SYNC/REXT
+    # resistors to the right.
     x0, y0 = 40.0, 199.0   # clear of mounting hole H4 at (19.2, 192)
     put(b, "U10", x0, y0, 0)
-    row_a = ["C214", "C215", "C210", "C211", "C216", "C217"]          # 0603: +5V pairs, VIO pair
-    for i, c in enumerate(row_a):
-        put(b, c, x0 - 4.5 + i * 1.8, y0 + 6.6, 90)
-    put(b, "C212", x0 - 4.5, y0 + 10.0, 90)
-    put(b, "C213", x0 - 2.7, y0 + 10.0, 90)
-    put(b, "C218", x0 + 0.0, y0 + 10.0, 90)                           # 22u bulk (0805)
+    caps = ["C212", "C213", "C214", "C215", "C210", "C211", "C216", "C217"]   # 0603: +5V, VIO pair
+    for i, c in enumerate(caps):
+        put(b, c, x0 - 5.6 + i * 1.6, y0 + 8.6, 90)
+    put(b, "C218", x0 - 8.2, y0 + 8.6, 90)                            # 22u bulk (0805)
     for i, r in enumerate(["R10", "R11", "R12", "R13", "R14", "R15", "R16"]):
-        put(b, r, x0 + 6.5 + i * 1.5, y0 + 6.6 + (i % 2) * 2.6, 90)
+        put(b, r, x0 + 7.5 + i * 1.5, y0 + 8.6, 90)
     # test points: one row below the LDO block, bottom side (TP1..TP16)
     for i in range(16):
         put(b, f"TP{i + 1}", 61.0 + i * 2.54, 19.3, 0)

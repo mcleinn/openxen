@@ -77,7 +77,7 @@ def write_tables() -> None:
                 {"pattern": "USB_*", "netclass": "USB"}]
     data["net_settings"] = {"classes": classes, "meta": {"version": 4}, "net_colors": None, "netclass_assignments": None, "netclass_patterns": patterns}
     ds = data.setdefault("board", {}).setdefault("design_settings", {})
-    ds["rules"] = {"min_clearance": 0.15, "min_track_width": 0.15, "min_via_diameter": 0.5, "min_via_annular_width": 0.1,
+    ds["rules"] = {"min_clearance": 0.15, "min_track_width": 0.2, "min_via_diameter": 0.5, "min_via_annular_width": 0.1,
                    "min_through_hole_diameter": 0.3, "min_hole_clearance": 0.2, "min_copper_edge_clearance": 0.25,
                    "min_hole_to_hole": 0.5, "solder_mask_clearance": 0.0, "solder_mask_min_width": 0.0}
     pro.write_text(json.dumps(data, indent=2), encoding="utf-8")

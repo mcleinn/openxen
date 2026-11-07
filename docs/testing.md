@@ -5,9 +5,12 @@ with the test suite; any failure stops the build. `python -m pytest` runs the te
 against the current artefacts (about 5 s).
 
 Pipeline: project -> schematic -> ERC -> netlist -> board (key field, HE60 blocks, muxes, LED
-driver, cell routing, LED sink lines, +3.3VA plane vias, silkscreen, planes) -> DRC ->
+driver, cell routing, LED sink lines, LED driver fan-out, +3.3VA plane vias, silkscreen,
+planes, autorouted tracks replayed from `hardware/routes/openxen-m56.routes.json`) -> DRC ->
 firmware keyboard.json -> firmware build (libhmk at the pinned commit, PlatformIO) ->
-production files (Fabrication Toolkit CLI) -> tests. `--route` adds the autorouting stages.
+production files (Fabrication Toolkit CLI) -> tests. The autorouting itself (TraceMaker)
+runs off-line on a board built with `--no-routes`; `import_routes.py --capture` stores an
+accepted result, which refuses to replay once the placement has changed.
 
 | File | What it proves |
 |---|---|
