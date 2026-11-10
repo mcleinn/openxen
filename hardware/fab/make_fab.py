@@ -41,6 +41,9 @@ for fp in b.GetFootprints():
         fp.SetField("FT Rotation Offset", str(c["rotation"]))
     if "position" in c:
         fp.SetField("FT Position Offset", "%s,%s" % tuple(c["position"]))
+    for name in ("FT Rotation Offset", "FT Position Offset"):
+        if fp.HasFieldByName(name):   # new fields default to visible on the silkscreen
+            fp.GetFieldByName(name).SetVisible(False)
     n += 1
 pcbnew.SaveBoard(board, b)
 print("jlc corrections on", n, "footprints")

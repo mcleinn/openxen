@@ -133,3 +133,21 @@ def test_jlc_placement_matches_easyeda_footprints(prod):
         pytest.skip("EasyEDA footprint cache missing (check_jlc_placement.py --fetch)")
     r = subprocess.run([kpy, str(ROOT / "hardware" / "fab" / "check_jlc_placement.py")], capture_output=True, text=True)
     assert r.returncode == 0, [l for l in r.stdout.splitlines() if not l.startswith("OK")]
+
+
+def test_jlc_correction_fields_not_on_silkscreen(prod):
+    """make_fab.py writes 'FT Rotation/Position Offset' fields onto the board copy; new fields
+    are visible by default and were printed on the first order's bottom silkscreen ("0,1.684"
+    under J1). They must be hidden."""
+    text = (ROOT / "build" / "fab" / "openxen-m56.kicad_pcb").read_text(encoding="utf-8")
+    visible = []
+    for m in re.finditer(r'\(property "FT [^"]+" "([^"]*)"', text):
+        depth, i = 0, m.start()
+        while True:
+            depth += {"(": 1, ")": -1}.get(text[i], 0)
+            i += 1
+            if depth == 0:
+                break
+        if "(hide yes)" not in text[m.start():i]:
+            visible.append(m.group(1))
+    assert not visible, f"{len(visible)} visible FT fields, e.g. {visible[:3]}"
