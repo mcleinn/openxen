@@ -83,6 +83,17 @@ Bench checks for the user (gate G1), with sources:
 | 9. Validation | Noise (raw/filtered, rest/mid/bottom), mux settling/crosstalk, per-key sample rate, LED-on vs LED-off noise, drift, USB load, end-to-end latency; acceptance thresholds agreed with user | AI tooling + user bench | **G3**: thresholds met → build remaining modules |
 | 10. Production | Remaining 3 modules assembled, 5-module case integration, docs (assembly, flashing, calibration, recovery) | both | done |
 
+### Bring-up log
+
+- **Board 1, 2026-11-24:** visual OK; 5.15 V / 0.14 A idle (LEDs off, below the 0.35-0.45 A
+  estimate: the 6 mA sensor current is specified at 5 V, ours run at 3.3 V); +3.3V and +3.3VA
+  good; factory DFU ("DFU in FS Mode", 2E3C:DF11) after Zadig/WinUSB; firmware flashed, enumerates
+  as 1209:0000 with 4 interfaces and the UID serial; stream 5177 reports/s, 0 lost, all 56 sensors
+  at rest 1889-2196 counts (noise mostly +-3-5), magnet test 56/56; LEDs red/green/blue/white on
+  all keys, no I2C errors (reverse-mount LED footprint fix confirmed); bootloader by command and
+  re-flash without the button work. Open: LED-on vs LED-off noise, full-white current at budget,
+  boards 2-5, mechanics and calibration.
+
 ## 6. Power budget per module (5 V, from research; verify on hardware)
 
 | Load | Current |

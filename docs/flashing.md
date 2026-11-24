@@ -41,10 +41,42 @@ command from the configurator.
 
 The firmware is built by `python firmware/build_firmware.py` (also part of `build_board.py`).
 
+## Updating without the BOOT button
+
+Once openxen firmware runs, it enters the bootloader by command (libhmk `COMMAND_BOOTLOADER`,
+id 2, on the configuration interface MI_02). Tested on board 1, 2026-11-24:
+
+```
+python host\tools\oxboot_win.py
+dfu-util.exe -d 2e3c:df11 -a 0 -s 0x08000000:leave -D C:\Dev-Free\openxen\build\fw\libhmk\.pio\build\openxen-m56\firmware.bin
+```
+
+The button (or SWD) is only needed when the firmware does not start or USB does not come up.
+Both SW2 and J3 face the floor plate in the case; take that module out (or drill a small access
+hole at about 76 mm from the left and 36.5 mm from the top edge, component side up, USB-C at top).
+Alternatively map libhmk's `SP_BOOT` keycode to a key combination.
+
+The WinUSB driver (Zadig, "DFU in FS Mode", 2E3C:DF11) is installed once per PC.
+
+## Bring-up tools (Windows, no extra packages)
+
+| Tool | Does |
+|---|---|
+| `python host\tools\oxmon_win.py [seconds]` | reads the analog stream: report rate, lost reports, mean/min/max per key |
+| `python host\tools\oxmon_win.py live` | magnet test: prints every key that moves, counts keys seen (target 56/56) |
+| `python host\tools\oxled_win.py rgb` | all keys red, green, blue, white (dim), prints driver status (I2C errors) |
+| `python host\tools\oxled_win.py chase` / `key N` | one key after another / one key in R, G, B |
+| `python host\tools\oxboot_win.py` | sends the bootloader command |
+
 ## Recovery over SWD
 
-Needs a Tag-Connect TC2030-NL cable (+ TC2030-CLIP), a way to connect it to the ST-LINK/V2, and
-OpenOCD with Artery support (PlatformIO package `tool-openocd-at32`, target `at32f405xx.cfg`).
+Chain: ST-LINK/V2 (20-pin 2.54 mm) -> 20-to-10-pin adapter (ZERO / DollaTek, use its 1.27 mm
+header) -> Tag-Connect **TC2030-CTX, Normal Orientation** (legged: the legs click into J3's four
+big holes, so it holds by itself) -> J3. Not "LEMTA" (Atmel-ICE only); not TC2050-ARM2010 (2.54 mm,
+for TC2050 cables). Check the adapter once with a multimeter: 20-pin 1/7/9/13/15 -> 10-pin
+1/2/4/6/10, GND (20-pin 4) -> 10-pin 3/5/9. TC2030-CTX mapping (datasheet): pad 1 VCC, 2 SWDIO,
+3 nRESET, 4 SWCLK, 5 GND, 6 SWO = J3. Software: OpenOCD with Artery support (PlatformIO package
+`tool-openocd-at32`, target `at32f405xx.cfg`); ST-LINK with AT32F405 not yet tested.
 
 | TC2030 pad (J3) | Signal | ST-LINK/V2 20-pin |
 |---|---|---|
