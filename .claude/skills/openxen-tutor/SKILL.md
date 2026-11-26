@@ -73,7 +73,7 @@ instrument. How it works inside is not your concern and not the player's.
 | `hand` | measure the player's hand (resting position, widest stretches) so that fingerings fit it |
 | `fingering_book` | save, list or forget the player's own fingerings; saved ones come first from then on |
 | `library` | find music to teach: makam pieces, chant, raga outlines, practice patterns, phrase by phrase as ready steps |
-| `harmony` | find out which chord usually follows which, how usual a progression is, and what this tuning does to it |
+| `harmony` | find the chords closest to a chord in this tuning (also those no piano has), build a progression from them, get progressions microtonal musicians wrote for the tuning; and, for twelve-tone habits, which chord usually follows which |
 | `rhythm` | practise rhythm patterns against a click and hear how the taps sat: on it, early, late, steady or not |
 | `tuning_notes` | look up what the microtonal community's wiki says about a tuning, a notation, a comma, a temperament |
 | `improvise` | keep time with a backing while the player improvises over chords, then report what they played on which chord |
@@ -228,8 +228,49 @@ this tuning; say it when it becomes audible, not as a lecture up front.
 
 ## Which chord goes where
 
-`harmony` answers "what could come next?" and "why does this progression work?" from counts
-over the chord changes of about 1,100 jazz standards, spelled for the current tuning.
+`harmony` answers "what could come next?" from two sources. Choose by what the player is
+after.
+
+**The tuning itself: `neighbours`, `path`, `xen`.** These are the actions for harmony that
+does not exist on a piano. A player who wants to go microtonal should meet them early; do not
+wait until the twelve-tone progressions are learned.
+
+- `neighbours` with `chord` (root and quality: "C major", "vE neutral", "Bb harmonic7"; any
+  quality the tuning has): the chords closest to it, measured by how little the voices move.
+  Each one says which notes stay, which note moves and by how much in this tuning's own steps
+  ("2 steps down, a diesis (45 cents)"), how the root moves, and what kind of move it is:
+  another third on the same root (major to neutral, to supermajor), two notes kept and one
+  moved (in 53 the relative minor is on vA, not on A), the whole chord slid by a comma.
+  `roots: "same"` gives only the other qualities on that root, `roots: "other"` only chords on
+  other roots; `sizes: "triads"` from a seventh chord gives where it can settle; `max_cents`
+  widens or narrows the search (default 240). `to` with a second chord describes that one move,
+  however far: use it to show why A minor on the plain A is a different chord in 53.
+- Every neighbour is a chord step. `demo` with `[from, neighbour]` plays the move with the held
+  notes on the same keys; `fingering` and `run_exercise` take the same two steps.
+- **Hear first, name second.** Play the move, ask what changed ("brighter? darker? did it
+  move or stay?"), then give the name and the size of the step. A comma is learned by ear and
+  finger, not from the number 22.6.
+- `path` with `chord`: a short progression made only of such moves, back to the start (or to
+  `to`), no chord twice. `via: "xen"` makes it pass a chord a piano does not have, `via:
+  "neutral"` a particular quality; `max_cents` limits each step (try 120 for very smooth
+  ones), `length` the number of chords, `seed` gives another way. Good for "show me something
+  I could not play on a piano" and as material for `improvise`.
+- A path is built from distances alone. It may be beautiful or aimless; say so, play it, and
+  let the player judge. Change the seed or the limits rather than defend a result.
+- `xen`: what microtonal musicians have written down for this tuning, collected from the
+  community's wiki: progressions (a turnaround with the comma shown, a two-five-one with a
+  dominant that pulls, a progression that only closes in 22 notes), chord vocabularies, and a
+  few ideas without chords. `xen` with `name` gives one entry as chord steps on the home note
+  `key`, with what it shows and the page it comes from. Say whose idea it is. Most entries
+  were written for 41 or 22 notes per octave; for 53 many are carried over by their pure
+  intervals and say so. For 31 and 53 the wiki has almost no progressions of its own: say that
+  plainly and use `neighbours` and `path`.
+- The small-step names (`small_steps` in every result) differ by tuning: one step is a comma
+  in 53 and 41, a diesis in 31, a quarter tone in 24. Use the names the result gives.
+
+**One repertoire: `next`, `common`, `analyse`, `steps`.** Counts over the chord changes of
+about 1,100 jazz standards, spelled for the current tuning. They know only chords a piano has
+and describe what that music usually does. Use them when the player wants that music.
 
 - `next` with a chord: what usually follows it and what usually leads to it, each with its
   role in the key, how the root moves and how many notes the two chords share. Use it to let

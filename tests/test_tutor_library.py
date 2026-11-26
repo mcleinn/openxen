@@ -607,6 +607,7 @@ def test_harmony_tool(jazz_built):
     try:
         over = t.harmony()
         assert "not a rule" in over["source"] and "Makam and raga" in over["other_musics"] and over["key"] == "C major"
+        assert all(word in over["beyond_this_repertoire"] for word in ("neighbours", "path", "xen"))
         nxt = t.harmony("next", key="C", chord="Dm7")
         assert nxt["after"] == "Dm7 (IIm7)" and nxt["usually_follows"][0]["chord"] == "G7" and nxt["usually_follows"][0]["in_percent_of_cases"] == 100
         # in 53 the fourth from the low second degree up to the fifth degree is a comma wide, and the two chords share two notes
@@ -630,9 +631,14 @@ def test_harmony_tool(jazz_built):
             t.harmony("next", chord="hello")
         with pytest.raises(TutorError, match="key must be"):
             t.harmony("next", key="xyz", chord="Dm7")
+        with pytest.raises(TutorError, match="tuning, neighbours, path, xen"):
+            t.harmony("nonsense")
+        # what the counts cannot know: the chords next to C major in this tuning (tests/test_tutor_voiceleading.py)
+        near = t.harmony("neighbours", chord="C major")["neighbours"]
+        assert len(near) == 6 and near[0]["label"] == "C supermajor" and "harmony_of_this_tuning" in t.harmony("tuning")
     finally:
         t.pump.stop()
-    piano = Tutor(FakeXentool(sample_setup(12, (0, 1, 2, 3))), library=lib.Library(jazz_built))
+    piano =Tutor(FakeXentool(sample_setup(12, (0, 1, 2, 3))), library=lib.Library(jazz_built))
     try:
         said = " ".join(piano.harmony("tuning")["what_it_does_to_progressions"])
         assert "as on a piano" in said and "comma wide" not in said and "Giant Steps" not in said and "harmonic seventh" not in said

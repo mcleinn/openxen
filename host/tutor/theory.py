@@ -331,6 +331,10 @@ class Tuning:
     def _tone_steps(self, quality: str) -> tuple[int, ...]:
         return tuple(sum(self._steps[p] for p in parts) for parts, _ in CHORDS[quality]["tones"])
 
+    def tone_steps(self, quality: str) -> tuple[int, ...]:
+        """The tones of a chord quality as steps above its root (the root itself left out)."""
+        return self._tone_steps(self.quality_key(quality))
+
     def has(self, quality: str) -> bool:
         """Whether the tuning plays this quality as something of its own."""
         q = CHORDS[quality]
