@@ -105,7 +105,7 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `hand` | Measure the player's hand on the keys: resting position (five keys held), widest stretches thumb-little finger and index-little finger; or a size preset; kept in `host/tutor/state/player.json` |
 | `fingering_book` | The player's own fingerings per hand shape, kept between sessions; they come first in `find_shape` and `fingering` on every root |
 | `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns |
-| `harmony` | Which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
+| `harmony` | From the tuning itself: the chords closest to a chord by the smallest movement of the voices (`neighbours`), a progression built from such moves (`path`), progressions and chord vocabularies from the Xenharmonic Wiki (`xen`). From one repertoire: which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
 | `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps |
 | `tuning_notes` | Search and read a local copy of the Xenharmonic Wiki: the pages of every tuning the keyboard has a layout for, notation, the chain of fifths, commas, temperaments, beginners' guides |
 | `improvise` | The server keeps time: count-in, a backing (chords, roots, drone), the notes of the sounding chord lit; reports per chord what was played, the share of chord tones, what each chord started on, and one rule (only these notes, chord tones only, chord tone or guide tone first) |
@@ -263,6 +263,86 @@ tritones, chord qualities beyond twelve notes.
 The counts describe American popular song and jazz of about 1920 to 1970, not harmony as such.
 Makam and raga are melodic systems without chord progressions and are served by the library.
 
+### Harmony from the tuning itself
+
+The counts know only twelve-tone chords. Three further actions of `harmony` need no repertoire
+and no statistics file.
+
+**`neighbours`** (`host/tutor/voiceleading.py`, pure functions). For a chord (root and quality,
+any quality the tuning has), every chord of the tuning is a candidate: all qualities of
+`theory.CHORDS` the tuning offers, of the same size (`sizes`: `same`, `triads`, `sevenths`,
+`any`), on every note. Chords are sets of notes regardless of octave. The distance between two
+chords is the smallest total movement that leads every voice of the first to a note of the
+second and uses every note of both (`assign`: all assignments are tried, three or four voices;
+when the sizes differ a voice splits or two merge); among equally cheap assignments the one
+that holds the most notes wins. Distances are counted in steps of the tuning and given in cents
+too. Chords with the same notes under two names appear once (`same_notes_as`), the chord's own
+notes under another name never. Per neighbour: the notes that stay, each moving voice with its
+size in steps and in the tuning's own words, how the root moves, and one of five kinds:
+
+| Kind | What it is | Example from C major in 53 |
+|---|---|---|
+| `quality` | another quality on the same root | C neutral, C supermajor: the third moves 2 steps |
+| `one_voice` | the root changes, one voice moves, the rest stay | vE minor; vA minor (G up a small whole tone) |
+| `shift` | the same chord slid along | ^C major: every voice one step, a comma |
+| `held` | some notes stay, several move | |
+| `free` | nothing stays | vC supermajor: three voices each a comma, in contrary motion |
+
+Ranking (`ranking="varied"`, the tool's): nearest first within each kind, and the kinds take
+turns in the order `TURNS` (quality, one voice, shift, quality, one voice, held, quality, one
+voice, shift, free), so that ten entries show the changed thirds, the chords sharing two notes
+and the comma shifts instead of ten near-copies. Diminished and augmented chords count as twice
+as far within their kind unless the starting chord is one of them (`RESTLESS_FACTOR`), which
+puts E minor and A minor before the diminished chord a semitone up. `ranking="nearest"` is
+distance alone. Parameters: `max_cents` (default 240: a whole tone and a little, so that the
+relative minor is inside in every tuning), `roots` (`any`, `same`, `other`), `sizes`, `limit`.
+The small distances are named from the tuning's fifth and thirds (`step_names`): the comma is
+four fifths against the pure major third, the chromatic semitone major against minor third, the
+diatonic semitone fourth against major third, the diesis three major thirds against the octave.
+One step is therefore a comma in 53, 41, 22 and 29, a diesis in 31, a quarter tone in 24.
+
+**`path`**: a progression of `length` chords from a chord back to itself (or to `to`), each move
+within `max_cents`, no chord twice, optionally passing a given quality or any quality a piano
+lacks (`via`). A breadth-first pass from the goal gives every chord's distance in moves; the
+search then goes depth-first through the ranked neighbours and takes only chords from which the
+goal is still in reach. Seed 0 takes the first such chord every time; another seed shuffles the
+ten best with a generator seeded by it, so a seed always gives the same progression.
+
+In the tool, a neighbour or path step is voiced by carrying each voice of the chord before it
+(`voiced`), so held notes are the same keys; the starting chord is in root position in the
+octave where it has keys, as the jazz changes are. If a carried voicing leaves the keyboard it
+is moved by octaves or set in root position. A root is spelled so that held notes keep their
+names (C vE G to vA C vE). Every entry has the shape of a chord step (`notes`, `label`, `root`,
+`beats`) plus `kind`, `stays`, `moves`, `total_cents`.
+
+**`xen`** (`host/tutor/xen_progressions.py`): 41 entries collected by hand from the wiki copy,
+each with its page and section, the chords as the source gives them and a summary in this
+project's words. A chord is a name, a root above the tonic and tones above the root, each as
+pure ratios or as steps of one tuning; a root may be several sizes added up, so that three
+fifths stay three fifths. Kinds: `progression`, `vocabulary` (chords to compare), `idea` (an
+observation; chords, if any, only illustrate it).
+
+| Notes per octave | Entries | Mainly from |
+|---|---|---|
+| 41 | 18 | Kite Giedraitis's Kite Guitar pages: translations with the comma shown, two-five-one variants, mirrored progressions, moves that keep two notes, a blues, two porcupine pumps |
+| 53 | 16 | 4 of its own (triads; the thirds cycle; schismatic triads; an idea from the Orwell page), 12 carried over from 41 by their pure intervals and marked so |
+| 22 | 9 | a progression resting on a suspended chord, superpyth tetrads, the porcupine pump, chord lists |
+| 29 | 6 | a progression in a mode without a perfect fifth, changing the home note voice by voice |
+| 31 | 6 | chord lists, the turnaround that closes, the augmented sixth as a harmonic seventh |
+| 19 | 5 | chord lists, the pentatonic scale as a chord |
+| 24 | 2 | triads, a major third closing to a minor third in contrary motion |
+| 12 | 1 | the turnaround that closes |
+| 56 | 0 | |
+
+Not in the copy: any progression written for 53 or 31 (their pages list intervals, chord names
+and scales); the page of worked comma pump examples (only the 12-tone list, with two of its
+three sections empty); progressions on the temperament pages, which describe chords and roles.
+The limits of the generator: its chords are the nineteen qualities of `theory.CHORDS`, so in 53
+the second neutral triad, the Pythagorean triads and chords with altered fifths are not found;
+a dominant seventh is the one with the wide seventh, not the key's fourth used in the jazz
+changes; distance says nothing about function, so the classical resolution of a seventh chord
+(root down a fifth) is far away and found only with `to`.
+
 ## Rhythm
 
 `host/tutor/rhythm.py` (judging, pure arithmetic), tool `rhythm`. A tap is compared with the time
@@ -352,7 +432,7 @@ addresses, which the model never sees.
 
 ## Tests
 
-`python -m pytest tests/test_tutor_*.py` (about 25 s, no keyboard needed) and `cargo test` in
+`python -m pytest tests/test_tutor_*.py` (about a minute, no keyboard needed) and `cargo test` in
 xentool. See `docs/testing.md` for what each file proves.
 
 Checked by hand on 2026-11-25: the server started with a token on all interfaces answers 401
