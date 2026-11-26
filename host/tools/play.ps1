@@ -23,12 +23,15 @@ machines reach it encrypted, the local network does not see it. The token may be
 user environment variable; it is read from there if this shell does not have it yet.
 -Mridangam: also start the mridangam sample player (host\synth\mridangam.scd, a second SuperCollider
 instance) and let the tutor's rhythm tools use it.
+-Tabla: the same for the tabla sample player (host\synth\tabla.scd, a SuperCollider instance of its
+own; its kit is prepared once with python host\synth\tabla_kit.py).
+-Mridangam and -Tabla start the tutor too (as -Tutor) if none of the tutor switches is given.
 -Tilt: how the keyfield lies in front of the player: 0 = key rows level (a single module square
 on the desk), 'lumatone' = the assembled case (16.1 degrees).
 #>
 param([int]$Edo = 53, [switch]$Wooting, [switch]$Stop,
       [ValidateSet('supercollider', 'amsynth')][string]$Synth = 'supercollider',
-      [switch]$Tutor, [switch]$TutorLan, [switch]$TutorTailscale, [string]$Tilt = '0', [switch]$Mridangam)
+      [switch]$Tutor, [switch]$TutorLan, [switch]$TutorTailscale, [string]$Tilt = '0', [switch]$Mridangam, [switch]$Tabla)
 
 $Repo     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Xentool  = 'C:\Dev-Free\xentool\target\release\xentool.exe'
@@ -78,6 +81,7 @@ if ($Synth -eq 'amsynth') {
     }
 }
 $TutorNet = $TutorLan -or $TutorTailscale
+if (($Mridangam -or $Tabla) -and -not $TutorNet) { $Tutor = $true }     # the drums are played by the tutor
 $TutorHost = $null
 if ($Tutor -or $TutorNet) {
     if ($TutorNet -and -not $env:OPENXEN_TUTOR_TOKEN) {
@@ -99,6 +103,13 @@ if ($Tutor -or $TutorNet) {
         $Running = Get-CimInstance Win32_Process -Filter "Name='sclang.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'mridangam' }
         if (-not $Running) { Start-Process -FilePath $Sclang -ArgumentList "`"$Patch`"" -WorkingDirectory (Split-Path $Sclang) -WindowStyle Minimized }
         $TutorArgs += '--mridangam'
+    }
+    if ($Tabla) {
+        $Patch = Join-Path $Repo 'host\synth\tabla.scd'
+        if (-not (Test-Path (Join-Path $Repo 'reference\music\tabla\kit\kit.scd'))) { python (Join-Path $Repo 'host\synth\tabla_kit.py') }
+        $Running = Get-CimInstance Win32_Process -Filter "Name='sclang.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'tabla\.scd' }
+        if (-not $Running) { Start-Process -FilePath $Sclang -ArgumentList "`"$Patch`"" -WorkingDirectory (Split-Path $Sclang) -WindowStyle Minimized }
+        $TutorArgs += '--tabla'
     }
     if ($TutorHost) { $TutorArgs += @('--host', $TutorHost) }
     Start-Sleep 2          # xentool's API is up before the tutor asks for the keyboard
