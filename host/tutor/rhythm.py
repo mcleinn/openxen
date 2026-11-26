@@ -16,12 +16,19 @@ about 10 ms of jitter. That is fine for the bands below and too coarse to judge 
 
 from __future__ import annotations
 
+import difflib
+import json
+import os
 import statistics
+import unicodedata
+from pathlib import Path
 
 BANDS = {"beginner": (40, 80, 120), "intermediate": (25, 50, 90), "advanced": (15, 35, 70)}
 GRADES = ("on it", "close", "near")
 
 # One cycle of each pattern: `pulses` equal parts, `beats` clicks in it, taps on `onsets`.
+# The five tala entries at the end are a fallback: where the rhythm library is built
+# (`rhythm_build.py`), `find` gives the sourced cycle of the same name instead.
 PATTERNS: dict[str, dict] = {
     "quarters": {"pulses": 4, "beats": 4, "onsets": [0, 1, 2, 3], "what": "every beat"},
     "eighths": {"pulses": 8, "beats": 4, "onsets": list(range(8)), "what": "two even notes per beat"},
@@ -43,6 +50,93 @@ PATTERNS: dict[str, dict] = {
     "dadra": {"pulses": 6, "beats": 6, "onsets": list(range(6)), "accents": [0], "what": "6 beats, 3+3: clap on 1, wave on 4"},
     "keherwa": {"pulses": 8, "beats": 8, "onsets": list(range(8)), "accents": [0], "what": "8 beats, 4+4: clap on 1, wave on 5"},
 }
+
+# --- the rhythm library: cycles converted from the researched sources by `rhythm_build.py` ---
+#
+# A cycle there has the fields of a pattern above and more:
+#   name, tradition (hindustani | carnatic | makam), kind (theka | tala | lesson | usul),
+#   strokes [{at, stroke, dur, loud}] in pulses (the theka's bols, a lesson's mridangam
+#   strokes, an usul's dum and tek), sections [{at, length, mark, gesture, ...}] (vibhag,
+#   angas or groups), sources, confidence, conflict (what the sources disagree on), variants.
+
+LIBRARY_FILE = Path(os.environ.get("OPENXEN_RHYTHM_LIBRARY") or Path(__file__).resolve().parents[2] / "build" / "tutor-library" / "rhythm.json")
+LIBRARY: dict[str, dict] = {}       # key -> cycle
+INFO: dict = {}                     # the rest of the file: how tabla bols are sounded, gati, lessons without strokes
+_NAMES: dict[str, str] = {}         # every name and alias without accents, spaces and signs -> key
+
+
+def squash(text: str) -> str:
+    """A name as it is compared: "Aksaksemâî (10/8)" and "aksak semai" are the same."""
+    text = text.split("(")[0].replace("ı", "i").replace("İ", "I")
+    text = "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
+    return "".join(c for c in text.lower() if c.isalnum())
+
+
+def load(path: str | Path | None = None) -> int:
+    """Read the built rhythm library (none if the file is missing). Returns the number of cycles."""
+    path = Path(path) if path else LIBRARY_FILE
+    LIBRARY.clear()
+    INFO.clear()
+    _NAMES.clear()
+    if path.exists():
+        data = json.loads(path.read_text(encoding="utf-8"))
+        LIBRARY.update(data.get("patterns", {}))
+        INFO.update({k: v for k, v in data.items() if k != "patterns"})
+    for key in PATTERNS:
+        _NAMES[squash(key)] = key
+    for key in LIBRARY:                                 # a sourced cycle supersedes a built-in one of the same name
+        _NAMES[squash(key)] = key
+    for key, cycle in LIBRARY.items():
+        for alias in [cycle.get("name", "")] + list(cycle.get("aliases", [])):
+            _NAMES.setdefault(squash(alias), key)
+    _NAMES.pop("", None)
+    return len(LIBRARY)
+
+
+def find(name: str) -> tuple[str, dict] | None:
+    """A pattern by name or alias: the library's cycle if there is one, else the built-in pattern."""
+    key = _NAMES.get(squash(name or ""))
+    if key is None:
+        return None
+    return key, LIBRARY.get(key) or PATTERNS[key]
+
+
+def close_names(name: str, limit: int = 6) -> list[str]:
+    near = difflib.get_close_matches(squash(name or ""), list(_NAMES), n=limit, cutoff=0.6)
+    return list(dict.fromkeys(_NAMES[n] for n in near))
+
+
+def variant_of(pattern: dict, number: int) -> dict:
+    """The pattern with the strokes (and sections, length) of its n-th playable variant, counted from 1."""
+    usable = [v for v in pattern.get("variants", []) if v.get("strokes")]
+    if not 1 <= number <= len(usable):
+        raise ValueError(f"it has {len(usable)} variant(s) that can be played" if usable else "it has no variant that can be played")
+    chosen = usable[number - 1]
+    out = {**pattern, **{k: v for k, v in chosen.items() if k not in ("name", "source", "note")}}
+    out["variant"] = chosen["name"]
+    if chosen.get("source"):
+        out["sources"] = [chosen["source"]]
+    return out
+
+
+def tap_onsets(pattern: dict, tap: str | None) -> list[float]:
+    """Where the player taps: None = the pattern's own onsets, "beats" = every beat,
+    "claps" = the claps of the cycle (its accents), "strokes" = every stroke of the drum."""
+    if not tap:
+        return list(pattern["onsets"])
+    if tap == "beats":
+        return [b * pattern["pulses"] / pattern["beats"] for b in range(pattern["beats"])]
+    if tap == "claps":
+        return [a * pattern["pulses"] / pattern["beats"] for a in sorted(pattern.get("accents", [0]))]
+    if tap == "strokes":
+        at = sorted({s["at"] for s in pattern.get("strokes", [])})
+        if not at:
+            raise ValueError("this pattern has no strokes of its own; tap beats or claps")
+        return at
+    raise ValueError("tap must be beats, claps or strokes")
+
+
+load()
 
 
 def targets(pattern: dict, cycles: int, start: float, beat_s: float) -> list[float]:
