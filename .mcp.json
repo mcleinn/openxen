@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "openxen-tutor": {
+      "type": "http",
+      "url": "${OPENXEN_TUTOR_URL:-http://127.0.0.1:9097/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${OPENXEN_TUTOR_TOKEN:-none}"
+      }
+    }
+  }
+}

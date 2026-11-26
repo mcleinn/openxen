@@ -1,0 +1,5 @@
+# openxen tutor (python -m tutor). Python 3.12.
+mcp>=2.3,<3         # MCP server (MCPServer, streamable HTTP); brings uvicorn, starlette, anyio
+xenharmlib>=0.3,<1  # note and interval names in ups-and-downs notation
+requests>=2.31      # client for xentool's local API
+zstandard    # only for wiki_build.py (reading the wiki backup)
