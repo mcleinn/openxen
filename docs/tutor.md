@@ -106,7 +106,8 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `fingering_book` | The player's own fingerings per hand shape, kept between sessions; they come first in `find_shape` and `fingering` on every root |
 | `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns |
 | `harmony` | Which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
-| `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps |
+| `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps. Also the cycles of the rhythm library (talas with their theka, mridangam lessons, usul) by name, sounded on tabla or mridangam where set up |
+| `drone` | Holds the tanpura's four notes for a raga (or given notes) under everything else until stopped; names the tuning rule and where the sources disagree |
 | `tuning_notes` | Search and read a local copy of the Xenharmonic Wiki: the pages of every tuning the keyboard has a layout for, notation, the chain of fifths, commas, temperaments, beginners' guides |
 | `improvise` | The server keeps time: count-in, a backing (chords, roots, drone), the notes of the sounding chord lit; reports per chord what was played, the share of chord tones, what each chord started on, and one rule (only these notes, chord tones only, chord tone or guide tone first) |
 | `set_lights` | Light keys by id or note with a role (`target`, `next`, `root`, `lh`, `rh`, `finger1`..`finger5`, `correct`, `wrong`) or a colour; clear single keys or all |
@@ -192,7 +193,9 @@ neighbouring keys.
 | 502 older songs as lead sheets (melody and chords) | OpenEWLD, `github.com/00sapo/OpenEWLD` | any | varies by piece; private use |
 | compositions in two staves ("Don't Take Five", 16 notes per octave; "Ephemeral Happiness", 17) | read from engraved scores: `host/tutor/scores/musescore_pdf.py` for MuseScore PDFs (glyph positions and vector paths; needs PyMuPDF), optical recognition for page images; JSON under `reference/music/woyten*/` | the tuning each was written for; elsewhere on the nearest notes | private use |
 | Wyschnegradsky, 24 Preludes op. 22 (two pianos a quarter-tone apart) | read from Ueli Raz's free vector engraving of the Belaieff edition (`reference/music/wyschnegradsky/convert.py`); a draft: 895 of 945 bars add up, one confirmed copying error in No. 1 | 24; elsewhere on the nearest notes | private use (work under copyright) |
-| 8 raga outlines | written here from the 22-shruti model (ratios per note) | any: nearest step to each ratio, error reported | this repository |
+| 8 raga outlines, each with its tanpura tuning | written here from the 22-shruti model (ratios per note); the drone rule from the rhythm research (see Rhythm) | any: nearest step to each ratio, error reported | this repository |
+| rhythm library: 22 Hindustani talas with theka, 40 Carnatic talas, 8 mridangam lessons, 36 usul | `reference/music/rhythm/tala.json` (research of 2026-11-26/27 from the sources in its `SOURCES.md`), converted by `python -m tutor.rhythm_build` to `build/tutor-library/rhythm.json`; tool `rhythm` | none | facts from many sources, each cycle lists its own; private use |
+| tabla samples | Subodh Deolekar, "Tabla strokes dataset", Zenodo 4327350, in the bolbox selection; `host/synth/tabla_kit.py` | tabla tuned to C# | CC BY 4.0 |
 | 6 practice patterns | alankar / varisai drills | any scale, any tuning | this repository |
 | comma lessons | generated: twelve fifths against the start, four fifths against the pure third, eight fifths down, three major thirds against the octave, a comma pump; each with notes to play and a pair to compare, and what comes out in the tuning | any | this repository |
 | cycles | generated: the major scale key after key (by fifths, fourths, whole or half steps); two-five-one key after key; the seven chords of a key by falling fifths, major and minor; dominant chains and the rhythm-changes bridge; the major-third cycle with how far it misses the octave; a spoke of the spiral; rings of fifths. Chords follow the comma policy of the jazz changes | any | this repository |
@@ -280,10 +283,66 @@ Bands per level in milliseconds: beginner 40 / 80 / 120, intermediate 25 / 50 / 
 Reported: counts per band, missed and extra taps, mean (ahead or behind), spread, drift over the
 take, the weakest taps. `improvise` reports how the notes sat on even half beats.
 
-Patterns: even notes, offbeats, Charleston, tresillo, cinquillo, son and rumba clave, bossa, the
-12/8 bell, three against two, waltz, and the Hindustani cycles teental, jhaptal, rupak, dadra,
-keherwa (tapped on every beat, accents on the claps). Turkish usul are left out until their
-stroke patterns are checked against a book: the sources found disagree.
+Built-in patterns: even notes, offbeats, Charleston, tresillo, cinquillo, son and rumba clave,
+bossa, the 12/8 bell, three against two, waltz, and as a fallback the Hindustani cycles teental,
+jhaptal, rupak, dadra, keherwa (tapped on every beat, accents on the claps).
+
+**Rhythm library.** `python -m tutor.rhythm_build` (from `host/`) converts the researched
+reference `reference/music/rhythm/tala.json` (third-party research, outside git; its `REPORT.md`
+and `SOURCES.md` say where everything comes from) into `build/tutor-library/rhythm.json`, which
+`rhythm.py` loads next to the built-in patterns. A sourced cycle replaces a built-in one of the
+same name. Contents:
+
+| Kind | Count | What a cycle carries |
+|---|---|---|
+| Hindustani talas | 22 | matras, vibhag with clap (tali) and wave (khali), the theka bol by bol, variants |
+| Carnatic talas | 40 (the 35 suladi talas, four chapu talas, 3-beat rupaka) | beats, the angas, the hand gesture of every beat |
+| mridangam lessons | 8 of the 27 solkattu lessons (those given syllable by syllable with a stroke each) | syllables and strokes; the other 19 are kept as text |
+| usul (Turkish makam music) | 36 | pulses, grouping, the strokes dum, tek, te, ke with their lengths |
+
+A cycle is a pattern with more fields: `name`, `aliases`, `tradition` (hindustani, carnatic,
+makam), `kind`, `pulses`, `beats`, `onsets`, `accents`, `what`, `strokes`
+(`[{at, stroke, dur, loud}]`, in pulses), `sections` (vibhag, angas or groups, with gesture),
+`sources`, `confidence`, `conflict` (what the sources disagree on), `variants`. Rules of the
+conversion: nothing is added to what the sources state. A matra holding several bols is split
+evenly. Conflicting cycles are kept and marked: `rhythm patterns` lists every cycle under its
+confidence, and every `demo` and `play` result of such a cycle carries `sources_disagree`.
+Carnatic gestures that the research derived from the rules of the angas (32 of 40) are listed
+as derived. The loudness of each stroke and "one click per syllable" in the lessons are this
+project's choice.
+
+`rhythm patterns` returns names and lengths by kind and confidence; with `pattern` the cycle in
+full (sections with their bols or gestures, variants, sources). `find` compares names without
+accents, spaces and the bracket, so the `meter` of a makam piece from the library
+("Aksaksemâî (10/8)", "K. Curcuna (10/8)") finds its usul.
+
+**What sounds** (`sound`, default `auto`; the table is `host/tutor/percussion.py`):
+
+| Cycle | `auto` | What is played | Sourced or chosen |
+|---|---|---|---|
+| Hindustani tala | tabla, if set up | the theka's own bols | bols sourced; bols without a recording see Tabla below |
+| mridangam lesson | mridangam, if set up | the lesson's own strokes | sourced by the lesson |
+| Carnatic tala | mridangam, if set up | first beat and claps a deep stroke, other beats a light one | this project's choice: no source gives a theka |
+| usul | tabla, else mridangam | dum = Ge (Thom), tek = Na (Num), te = Te, ke and ka = Ke, hek = Dha (Tham); mridangam: te, ke, ka = Thi | strokes sourced, the sound is a stand-in: no frame drum is recorded |
+| a stroke the source does not name | | a click | |
+| anything without its drum | click | every stroke (or beat) as a click, claps accented | |
+
+In `play` the drum's strokes are the pulse (the count-in stays a click). `tap` says what the
+player taps: `beats` (every matra), `claps` (the accents; for an usul the starts of its groups)
+or `strokes`; without it a tala is tapped on every beat, a lesson and an usul on their strokes.
+`variant` plays one of the other versions the sources give.
+
+**Drone** (tool `drone`). The tanpura tuning of a raga follows the research
+(`tanpura_tunings` in tala.json; rule in `library.py`, `drone_tuning`): Pa-Sa-Sa-Sa when the raga
+has Pa, Ma-Sa-Sa-Sa when Pa is absent and the plain Ma present, otherwise Dha, Ni or Ga (the
+sources disagree: Courtney prefers Dha, Toss Levy gives Ni, raganet Ga; Dha is used and the
+result says so). A raga can override the rule (`"drone"` in `RAGAS`: Bageshri takes Ma although
+it has Pa, as Toss Levy and raganet list it). `library raga` reports it under `tanpura`. The
+drone itself is four held notes of the keyboard's own sound, struck in the tanpura's order
+(first string, Sa, Sa, low Sa) every `pace_s` seconds by a background thread until `drone stop`
+or `stop`; it holds no lock, so demos, exercises and rhythm takes run over it. It is not a
+tanpura's tone: a synth for that exists for another keyboard
+(`xentool/supercollider/mpe_tanpura_xentool.scd`) and can replace the held notes later.
 
 The click is a note on MIDI channel 10 (General MIDI percussion, notes 76 and 77), sent through
 xentool's `POST /api/midi`. The SuperCollider patch plays that channel as a short tick; a drum
@@ -311,6 +370,32 @@ shares neither a MIDI channel nor a synth with the piano patch. `host/synth/mrid
 the Pi; six loudness layers, three takes each). Started by hand: `sclang host/synth/mridangam.scd`.
 The tutor uses it when started with `--mridangam` (`play.ps1 -Mridangam` starts both): `rhythm`
 and `improvise` take `sound: "mridangam"` for the pulse, and `rhythm demo` plays a pattern on it.
+
+## Tabla
+
+`host/synth/tabla.scd` is the same for the tabla: a SuperCollider instance of its own (sound
+server on port 57142, OSC on 57143: `/tabla/stroke <bol> <loudness 0..1>`, `/tabla/gain`,
+`/tabla/ping` answered with `/tabla/pong`). Ports in use on this machine: 57110/57120 (main
+patch), 57140/57141 (mridangam), 57142/57143 (tabla), 57150/57151 (reserved by other patches).
+`python host/synth/tabla_kit.py` prepares `reference/music/tabla/kit` (outside git): the 110
+samples of the bolbox kit `deolekar-tabla` (eleven bols, ten takes each, with its gain per bol),
+which is a selection from Subodh Deolekar's "Tabla strokes dataset" (2020, Zenodo, DOI
+10.5281/zenodo.4327350, CC BY 4.0; trimmed and mixed to mono by bolbox), and `kit.scd`, the table
+of which samples sound for which bol. The tutor uses the patch when started with `--tabla`
+(`play.ps1 -Tabla` starts both and prepares the kit if it is missing).
+
+How a bol is sounded (`host/tutor/percussion.py`, reported to the player as `sound_note`):
+
+| Bol | Sound | Basis |
+|---|---|---|
+| Ge, Ka, Na, Tin, Tun, Ta, Ti, Te, Re, Dha, Dhun | its own recording | the kit (Tu = Tun, Ki = Ka as the kit and the research treat them) |
+| Kat, Ke; Ga, Ghe; Ra; Taa | Ka; Ge; Ta; Na | the recorded bol of the same timbre class (CompMusic Tabla Solo dataset, `tabla_bol_timbre_classes`) |
+| Dhin, Dhi, Dhe | Ge together with Tin, Ti, Te | **this project's choice**: the kit has no recording; a bol in "Dh" is taken as the open left-drum stroke with the right-drum stroke of the same name. The research report mentions the layering only as a suggestion |
+| Din, Di; Kra | Tin; Ka | **stand-in, this project's choice**: no recording in their timbre class |
+| Da, Gad, Gha, Ghaa, Kde, Ne, Tit | silent | they occur only in variants; nothing honest to play |
+
+Every bol of the 22 main thekas has a sound. Dhi is composed as Ge + Ti by the rule, although
+the research notes that sources write Dhi and Dhin for the same bol in Jhaptal and Keherwa.
 
 ## Tuning notes
 
