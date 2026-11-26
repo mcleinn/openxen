@@ -198,6 +198,59 @@ def test_identify_adds_xentools_chord_names(tutor, fake):
     assert out["other_readings"] == ["C: Major Triad~5c"]
 
 
+def test_the_tutor_follows_whichever_keyboard_is_connected():
+    """Several xentool instances, one per kind of keyboard: the one with keys is used, and
+    the tutor moves over when a keyboard is plugged in elsewhere or its xentool goes away."""
+    from tutor.xt import AnyXentool, XentoolError
+
+    class Gone(FakeXentool):
+        down = False
+
+        def setup(self):
+            if self.down:
+                raise XentoolError("xentool is not reachable")
+            return super().setup()
+
+    empty = sample_setup(53, ())
+    wooting, openxen = Gone(dict(empty)), Gone(dict(empty))
+    any_ = AnyXentool([wooting, openxen])
+    any_.RECHECK_S = 0.05
+    tutor = Tutor(any_)
+    try:
+        with pytest.raises(TutorError, match="no keyboard module is connected"):
+            tutor.keyboard_info()
+        # boards appear on the second instance
+        openxen.set_setup(sample_setup(31, (0, 1)))
+        time.sleep(0.4)
+        info = tutor.keyboard_info(include_map=False)
+        assert info["tuning"].startswith("31") and info["keys"] == 112
+        key = tutor.keyboard.centre()
+        tutor.set_lights([{"key": key.id}])
+        assert openxen.overlay_state and not wooting.overlay_state          # lights go to the keyboard in use
+        time.sleep(0.3)
+        openxen.press(key.board, key.key)
+        openxen.release(key.board, key.key)
+        time.sleep(0.3)
+        assert tutor.played()["note_count"] == 1                           # and its key presses are heard
+        # they are pulled out there and a keyboard in another tuning is plugged in on the first
+        openxen.set_setup(dict(empty))
+        wooting.set_setup(sample_setup(53, (0,)))
+        time.sleep(0.5)
+        assert tutor.keyboard_info(include_map=False)["tuning"].startswith("53")
+        # an instance that stops answering is skipped
+        wooting.down = True
+        openxen.set_setup(sample_setup(31, (0,)))
+        time.sleep(0.5)
+        assert tutor.keyboard_info(include_map=False)["tuning"].startswith("31")
+        # all gone: what needs the keyboard says so
+        openxen.down = True
+        time.sleep(0.3)
+        with pytest.raises(XentoolError, match="not reachable"):
+            any_.setup()
+    finally:
+        tutor.pump.stop()
+
+
 def test_find_shape(tutor):
     out = tutor.find_shape(root="C4", quality="major")
     way = out["ways"][0]

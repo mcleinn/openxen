@@ -32,7 +32,7 @@ from .calllog import CallLog
 from .player import Player
 from .session import PRACTICE_NOTE, Tutor, TutorError
 from .theory import TheoryError
-from .xt import FakeXentool, Xentool, XentoolError
+from .xt import AnyXentool, FakeXentool, Xentool, XentoolError
 
 TOKEN_ENV = "OPENXEN_TUTOR_TOKEN"
 DEFAULT_PORT = 9097
@@ -383,7 +383,9 @@ def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="python -m tutor", description="openxen tutor MCP server")
     p.add_argument("--host", default="127.0.0.1", help="address to listen on; 0.0.0.0 for the local network (needs a token)")
     p.add_argument("--port", type=int, default=DEFAULT_PORT)
-    p.add_argument("--xentool", default="http://127.0.0.1:9098", help="xentool's local API (xentool serve <layout> --api)")
+    p.add_argument("--xentool", default="http://127.0.0.1:9098",
+                   help="xentool's local API (xentool serve <layout> --api). Several, separated by commas, when more than one "
+                        "xentool runs (one per kind of keyboard): the tutor uses the one that has a keyboard connected")
     p.add_argument("--tilt", type=parse_tilt, default=0.0,
                    help="how far the keyfield is turned anticlockwise in front of the player, in degrees; "
                         "'lumatone' for the assembled five-module case (%.1f)" % LUMATONE_TILT_DEG)
@@ -404,7 +406,8 @@ def main(argv: list[str] | None = None) -> int:
         from .sample import sample_setup
         client = FakeXentool(sample_setup(args.fake))
     else:
-        client = Xentool(args.xentool)
+        urls = [u.strip() for u in args.xentool.split(",") if u.strip()]
+        client = Xentool(urls[0]) if len(urls) == 1 else AnyXentool([Xentool(u) for u in urls])
     if (args.player or "").strip().lower() == "none" or (args.fake and not args.player):
         player = Player()
     else:

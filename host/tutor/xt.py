@@ -111,6 +111,104 @@ class Xentool:
             time.sleep(0.1)
 
 
+class AnyXentool:
+    """Several xentool instances (one per kind of keyboard: openxen, Wooting, Exquis), of
+    which the tutor uses the one that has a keyboard connected. Which one that is can change
+    while the tutor runs (a keyboard is plugged in or pulled out); the choice is looked at
+    again every few seconds while the current one has no keys, and whenever it fails.
+
+    Has the interface of `Xentool`. After a change, `events` reports one event of type
+    "setup" so that the tutor reads the keyboard anew."""
+
+    RECHECK_S = 3.0
+
+    def __init__(self, clients: list):
+        if not clients:
+            raise ValueError("no xentool given")
+        self.clients = list(clients)
+        self._lock = threading.Lock()
+        self._active = 0
+        self._has_keys = False
+        self._checked = 0.0
+        self._announce = False
+
+    def _choose(self, force: bool = False) -> int:
+        with self._lock:
+            now = time.monotonic()
+            if not force and (self._has_keys or now - self._checked < self.RECHECK_S):
+                return self._active
+            self._checked = now
+            first_alive = None
+            for i, client in enumerate(self.clients):
+                try:
+                    setup = client.setup()
+                except XentoolError:
+                    continue
+                first_alive = i if first_alive is None else first_alive
+                if setup.get("keys"):
+                    if i != self._active or not self._has_keys:
+                        self._announce = True
+                    self._active, self._has_keys = i, True
+                    return i
+            self._has_keys = False
+            if first_alive is not None and first_alive != self._active:
+                self._active, self._announce = first_alive, True
+            return self._active
+
+    @property
+    def active(self):
+        return self.clients[self._choose()]
+
+    def _call(self, name: str, *args, **kwargs):
+        client = self.active
+        try:
+            return getattr(client, name)(*args, **kwargs)
+        except XentoolError:
+            other = self.clients[self._choose(force=True)]
+            if other is client:
+                raise
+            return getattr(other, name)(*args, **kwargs)
+
+    def setup(self) -> dict:
+        setup = self._call("setup")
+        if self._has_keys and not setup.get("keys"):        # the keyboard was pulled out: look at the others
+            with self._lock:
+                self._has_keys = False
+            setup = self.clients[self._choose(force=True)].setup()
+        return setup
+
+    def events(self, after: int | None, wait_ms: int = 0) -> dict:
+        client = self.active
+        with self._lock:
+            announce, self._announce = self._announce, False
+        if announce:        # numbers of another instance mean nothing here: start from its current one
+            return {"next": client.events(None)["next"], "missed": True, "events": [{"type": "setup", "boards": []}]}
+        if not self._has_keys:
+            wait_ms = min(wait_ms, int(self.RECHECK_S * 1000))      # come back soon to look for a keyboard
+        return client.events(after, wait_ms)
+
+    def held(self):
+        return self._call("held")
+
+    def overlay(self, *args, **kwargs):
+        return self._call("overlay", *args, **kwargs)
+
+    def notes(self, *args, **kwargs):
+        return self._call("notes", *args, **kwargs)
+
+    def midi(self, *args, **kwargs):
+        return self._call("midi", *args, **kwargs)
+
+    def chord_names(self, *args, **kwargs):
+        return self._call("chord_names", *args, **kwargs)
+
+    def layouts(self):
+        return self._call("layouts")
+
+    def switch_layout(self, *args, **kwargs):
+        return self._call("switch_layout", *args, **kwargs)
+
+
 class EventPump:
     """Fetches key events from xentool on a background thread and hands each one to every
     subscriber's queue, so a waiting tool call sees a key press within milliseconds."""
