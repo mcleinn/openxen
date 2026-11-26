@@ -217,6 +217,8 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         Jazz: tunes come as chord changes (get with phrase=N gives section N as chord steps;
         voicing full, shell = root-third-seventh, guide = third and seventh, root; sevenths
         auto, harmonic or plain; part "changes" or "melody" for lead sheets that have both).
+        Compositions (tradition "composition") come bar by bar: phrase = bar number,
+        phrases = how many bars, part = upper, lower or both.
         Makam pieces are written in 53 steps per octave: switch the tuning, or pass
         nearest=true to play a piece written for another tuning on the nearest notes of
         this one (an approximation; the result says how far off). One phrase at a time."""

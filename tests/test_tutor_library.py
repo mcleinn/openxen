@@ -653,6 +653,66 @@ def test_the_real_harmony_statistics_if_installed():
     assert any(run == "IIm7 V7 Imaj7" for run, _ in stats["major"]["runs"][:5])
 
 
+def test_a_score_in_two_staves_comes_bar_by_bar(tmp_path):
+    source, out = tmp_path / "src", tmp_path / "lib"
+    (source / "woyten16").mkdir(parents=True)
+    score = {"title": "Little Piece", "composer": "Some One", "tuning": 31, "bars": [
+        {"n": 1, "time": "3/4", "staves": {
+            "upper": [{"beat": 1.0, "dur": 1.0, "notes": [{"step": 124}]}, {"beat": 2.0, "dur": 0.5, "notes": [{"step": 129}]},
+                      {"beat": 2.5, "dur": 0.5, "notes": [{"step": 134}]}, {"beat": 3.0, "dur": 1.0, "rest": True, "notes": []}],
+            "lower": [{"beat": 1.0, "dur": 3.0, "notes": [{"step": 93}, {"step": 111}]}]}},
+        {"n": 2, "time": "2/4", "staves": {"upper": [{"beat": 1.5, "dur": 1.5, "notes": [{"step": 142}]}], "lower": []}},
+    ]}
+    (source / "woyten16" / "dont_take_five.json").write_text(json.dumps(score), encoding="utf-8")
+    assert build.build(source, out) == {"scores": 1}
+    library = lib.Library(out)
+    (entry,) = library.search(tradition="composition")
+    assert entry["id"] == "score/dont-take-five" and entry["bars"] == 2 and entry["tuning"] == 31
+
+    t = Tutor(FakeXentool(sample_setup(31, (0, 1, 2, 3))), library=library)
+    try:
+        head = t.library("get", id=entry["id"])
+        assert head["bars"] == 2 and head["metre"] == ["bar 1: 3/4", "bar 2: 2/4"] and "steps" not in head
+        upper = t.library("get", id=entry["id"], phrase=1)
+        assert upper["part"] == "upper" and upper["steps"] == [{"note": "C4 (0)"}, {"note": "D4 (5)", "beats": 0.5}, {"note": "E4 (10)", "beats": 1.5}]
+        lower = t.library("get", id=entry["id"], phrase=1, part="lower")
+        assert lower["steps"] == [{"notes": ["C3 (0)", "G3 (18)"], "beats": 3.0}]
+        both = t.library("get", id=entry["id"], phrase=1, phrases=2, part="both")
+        assert both["bars_given"] == "1-2" and both["steps"][0] == {"notes": ["C3 (0)", "G3 (18)", "C4 (0)"]}
+        # the second bar starts with half a beat of silence, which lengthens the note before it
+        assert both["steps"][-2]["beats"] == 2.0 and both["steps"][-1] == {"note": "G4 (18)", "beats": 1.5}
+        assert len(t.fingering(upper["steps"])["steps"]) == 3
+        with pytest.raises(TutorError, match="between 1 and 2"):
+            t.library("get", id=entry["id"], phrase=3)
+    finally:
+        t.pump.stop()
+    other = Tutor(FakeXentool(sample_setup(53, (0, 1, 2, 3, 4))), library=library)
+    try:
+        with pytest.raises(TutorError, match="nearest=true"):
+            other.library("get", id=entry["id"], phrase=1)
+        near = other.library("get", id=entry["id"], phrase=1, nearest=True)
+        assert "written for 31" in near["approximated"] and [s["note"].split()[1] for s in near["steps"]] == ["(0)", "(9)", "(17)"]
+    finally:
+        other.pump.stop()
+
+
+def test_two_piano_preludes_become_two_parts(tmp_path):
+    source, out = tmp_path / "src", tmp_path / "lib"
+    (source / "wyschnegradsky").mkdir(parents=True)
+    prelude = {"number": 16, "tuning": 24, "bars": 2, "time": "5/4", "time_changes": [{"bar": 1, "time": "5/4"}, {"bar": 2, "time": "4/4"}],
+               "tempi": [{"bar": 1, "bpm": 52}], "notes": [
+                   {"onset": 0.0, "dur": 1.0, "step": 96, "piano": 1, "bar": 1}, {"onset": 0.0, "dur": 1.0, "step": 104, "piano": 1, "bar": 1},
+                   {"onset": 1.0, "dur": 4.0, "step": 95, "piano": 2, "bar": 1}, {"onset": 5.0, "dur": 2.0, "step": 110, "piano": 1, "bar": 2}]}
+    (source / "wyschnegradsky" / "preludes.json").write_text(json.dumps([prelude]), encoding="utf-8")
+    assert build.build(source, out) == {"scores": 1}
+    piece = lib.Library(out).piece("score/wyschnegradsky-prelude-16")
+    assert piece["tuning"] == 24 and piece["composer"] == "Ivan Wyschnegradsky" and piece["level"] == 3
+    one, two = piece["score"]
+    assert (one["time"], one["length"], two["time"], two["length"]) == ("5/4", 5.0, "4/4", 4.0)
+    assert one["staves"]["upper"] == [[0.0, 1.0, [96, 104]]] and one["staves"]["lower"] == [[1.0, 4.0, [95]]]      # piano II a quarter-tone lower
+    assert two["staves"]["upper"] == [[0.0, 2.0, [110]]]                                                           # onset counted from its bar
+
+
 def test_the_real_collections_if_they_are_installed():
     """After `python -m tutor.library_build`: sizes as documented, every piece has phrases."""
     library = lib.Library()

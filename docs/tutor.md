@@ -190,6 +190,8 @@ neighbouring keys.
 | 9,045 Gregorian chants | GregoBaseCorpus v0.4, `github.com/bacor/gregobasecorpus` | any (spelled note names; exactly Pythagorean in 53) | CC0 |
 | chord changes of 1,382 jazz standards | `github.com/mikeoliphant/JazzStandards` (from the iReal Pro community database) | any: chord symbols are spelled for the current tuning | none stated; private use |
 | 502 older songs as lead sheets (melody and chords) | OpenEWLD, `github.com/00sapo/OpenEWLD` | any | varies by piece; private use |
+| compositions in two staves ("Don't Take Five", 16 notes per octave; "Ephemeral Happiness", 17) | read from engraved scores: `host/tutor/scores/musescore_pdf.py` for MuseScore PDFs (glyph positions and vector paths; needs PyMuPDF), optical recognition for page images; JSON under `reference/music/woyten*/` | the tuning each was written for; elsewhere on the nearest notes | private use |
+| Wyschnegradsky, 24 Preludes op. 22 (two pianos a quarter-tone apart) | read from Ueli Raz's free vector engraving of the Belaieff edition (`reference/music/wyschnegradsky/convert.py`); a draft: 895 of 945 bars add up, one confirmed copying error in No. 1 | 24; elsewhere on the nearest notes | private use (work under copyright) |
 | 8 raga outlines | written here from the 22-shruti model (ratios per note) | any: nearest step to each ratio, error reported | this repository |
 | 6 practice patterns | alankar / varisai drills | any scale, any tuning | this repository |
 | comma lessons | generated: twelve fifths against the start, four fifths against the pure third, eight fifths down, three major thirds against the octave, a comma pump; each with notes to play and a pair to compare, and what comes out in the tuning | any | this repository |
@@ -289,6 +291,15 @@ plugin on the same MIDI port can play it instead (`~drumChannel = nil` in the pa
 use channels 1 to 5, so channel 10 is free. Timing passes USB polling, an HTTP request and
 thread scheduling: about 10 ms of jitter, fine for these bands, too coarse to judge an expert.
 Wait-mode exercises (`run_exercise`) have no pulse and are not timed.
+
+## Layouts for any tuning
+
+`host/layouts/isomorphic.py` generates a Bosanquet-style layout for any number of notes per octave
+from two step sizes (one key to the right, one key up-right), by default derived from the tuning's
+best fifth: `python host/layouts/isomorphic.py 17` writes `build/layouts/17ET-bosanquet.otn`
+(right 3, up-right 2), `16` writes `16ET-mavila.otn` (fifth of 9 steps: right 2, up-right -1, so the
+key up-right is one step LOWER). With right 9 and up-right 5 it reproduces the existing 53 layout
+key for key, which is the check of its geometry.
 
 ## Mridangam
 

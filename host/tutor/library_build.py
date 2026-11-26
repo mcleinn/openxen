@@ -415,6 +415,100 @@ def leadsheets(zip_path: Path):
             yield piece
 
 
+# --- scores: pieces in two staves, read from engraved scores ---
+
+# Machine-readable scores under reference/music/, each `{"title", "composer", "tuning", "bars": [{"n", "time",
+# "staves": {"upper": [{"beat", "dur", "notes": [{"step"}]}], "lower": [...]}}]}` (beat = 1 + quarter notes into
+# the bar; step = steps of the piece's tuning above its lowest reference). How each was made is in its folder.
+SCORES = [
+    ("woyten16/dont_take_five.json", "dont-take-five", 4, "read from the MuseScore PDF (transcription by Stephen Weigel)"),
+    ("woyten/final/ephemeral_happiness.json", "ephemeral-happiness", 4, "optical recognition of the score, accidentals revised"),
+]
+
+
+def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
+    data = json.loads(path.read_text(encoding="utf-8"))
+    bars = []
+    for bar in data.get("bars", []):
+        staves = {}
+        for staff, events in (bar.get("staves") or {}).items():
+            kept = []
+            for e in events:
+                steps = [n["step"] for n in e.get("notes", []) if isinstance(n.get("step"), int)]
+                if steps and not e.get("rest") and float(e.get("dur", 0)) > 0:
+                    kept.append([round(float(e["beat"]) - 1.0, 4), round(float(e["dur"]), 4), sorted(set(steps))])
+            staves[staff] = kept
+        num, _, den = str(bar.get("time") or "4/4").partition("/")
+        bars.append({"n": bar.get("n", len(bars) + 1), "time": bar.get("time") or "4/4",
+                     "length": round(4.0 * float(num) / float(den or 4), 4), "staves": staves})
+    if not bars:
+        return None
+    tuning = data["tuning"]["edo"] if isinstance(data["tuning"], dict) else data["tuning"]      # either the number or {"edo": ...}
+    return {
+        "id": f"score/{slug}", "title": data.get("title", slug), "tradition": "composition", "mode": f"{tuning} notes per octave",
+        "form": "piano piece in two staves", "meter": bars[0]["time"], "composer": data.get("composer", ""), "level": level,
+        "tuning": int(tuning), "source": how, "licence": "private use", "notes": [], "theory": {}, "phrases": [],
+        "score": bars, "bars": len(bars),
+    }
+
+
+def scores(source: Path):
+    for relative, slug, level, how in SCORES:
+        path = source / relative
+        if path.exists():
+            piece = score_piece(path, slug, level, how)
+            if piece:
+                yield piece
+    yield from wyschnegradsky(source / "wyschnegradsky" / "preludes.json")
+
+
+def wyschnegradsky(path: Path):
+    """Ivan Wyschnegradsky, 24 Preludes op. 22 for two pianos a quarter-tone apart: a list of
+    preludes, each with notes `{"onset", "dur", "step" (24 per octave, C4 = 96), "piano", "bar"}`
+    and its time signatures. Read from Ueli Raz's engraving (see reference/music/wyschnegradsky);
+    a draft, not proofread: about one bar in twenty does not add up. Piano I becomes the upper
+    part and piano II (a quarter-tone lower) the lower part."""
+    if not path.exists():
+        return
+    for prelude in json.loads(path.read_text(encoding="utf-8")):
+        changes = sorted(prelude.get("time_changes") or [{"bar": 1, "time": prelude.get("time", "4/4")}], key=lambda c: c["bar"])
+
+        def time_of(bar: int) -> str:
+            return [c["time"] for c in changes if c["bar"] <= bar][-1]
+
+        starts: dict[int, float] = {}
+        at = 0.0
+        for n in range(1, int(prelude["bars"]) + 1):
+            starts[n] = at
+            num, _, den = time_of(n).partition("/")
+            at += 4.0 * float(num) / float(den or 4)
+        bars = {n: {"n": n, "time": time_of(n), "length": round(starts.get(n + 1, at) - starts[n], 4), "staves": {"upper": {}, "lower": {}}}
+                for n in starts}
+        for note in prelude["notes"]:
+            bar = bars.get(note["bar"])
+            if bar is None or float(note["dur"]) <= 0:
+                continue
+            beat = round(max(0.0, float(note["onset"]) - starts[note["bar"]]), 4)
+            staff = bar["staves"]["upper" if note["piano"] == 1 else "lower"]
+            event = staff.setdefault(beat, [beat, round(float(note["dur"]), 4), []])
+            event[2].append(int(note["step"]))
+            event[1] = max(event[1], round(float(note["dur"]), 4))
+        out = []
+        for n in sorted(bars):
+            bar = bars[n]
+            bar["staves"] = {name: [[b, d, sorted(set(s))] for b, d, s in (events[k] for k in sorted(events))] for name, events in bar["staves"].items()}
+            out.append(bar)
+        seconds = max(1.0, at * 60.0 / float((prelude.get("tempi") or [{"bpm": 80}])[0].get("bpm", 80) or 80))
+        density = len(prelude["notes"]) / seconds
+        yield {
+            "id": f"score/wyschnegradsky-prelude-{int(prelude['number']):02d}", "title": f"Prelude {prelude['number']} (24 Preludes op. 22)",
+            "tradition": "composition", "mode": "24 notes per octave", "form": "two pianos a quarter-tone apart (upper = piano I, lower = piano II)",
+            "meter": out[0]["time"], "composer": "Ivan Wyschnegradsky", "level": 3 if density < 3 else 4 if density < 6 else 5, "tuning": 24,
+            "source": "read from Ueli Raz's engraving of the Belaieff edition; a draft, not proofread", "licence": "private use",
+            "notes": [], "theory": {}, "phrases": [], "score": out, "bars": len(out),
+        }
+
+
 # --- build ---
 
 INDEX_FIELDS = ("id", "title", "tradition", "mode", "form", "meter", "composer", "level", "tuning", "source", "licence")
@@ -429,14 +523,14 @@ def build(source: Path = SOURCE, out: Path = OUT) -> dict:
         n = 0
         with (out / f"{collection}.jsonl").open("w", encoding="utf-8", newline="\n") as f:
             for piece in pieces:
-                if not piece or not (piece["phrases"] or piece.get("changes")):
+                if not piece or not (piece["phrases"] or piece.get("changes") or piece.get("score")):
                     continue
                 at = f.tell()
                 f.write(json.dumps(piece, ensure_ascii=False, separators=(",", ":")) + "\n")
                 sounding = [p for p, _ in piece["notes"] if p is not None]
                 entry = {k: piece[k] for k in INDEX_FIELDS}
                 entry.update(file=f"{collection}.jsonl", at=at, notes=len(sounding), phrases=len(piece["phrases"]))
-                if piece.get("changes"):
+                if piece.get("changes") or piece.get("score"):
                     entry["bars"] = piece.get("bars", 0)
                 if piece["tuning"] and sounding:
                     entry["low"], entry["high"] = min(sounding), max(sounding)
@@ -458,6 +552,8 @@ def build(source: Path = SOURCE, out: Path = OUT) -> dict:
         (out / "harmony.json").write_text(json.dumps(stats, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     if (jazz / "OpenEWLD.zip").exists():
         write("jazz-melodies", leadsheets(jazz / "OpenEWLD.zip"))
+    if any((source / relative).exists() for relative, *_ in SCORES) or (source / "wyschnegradsky" / "preludes.json").exists():
+        write("scores", scores(source))
     (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     return counts
 

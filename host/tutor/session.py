@@ -1404,6 +1404,72 @@ class Tutor:
             out["not_on_this_keyboard"] = list(dict.fromkeys(missing))
         return out
 
+    def _score_bars(self, piece: dict, first: int | None, count: int, part: str) -> dict:
+        """A piece in two staves, bar by bar: what sounds together at each moment as one step."""
+        kb = self.keyboard
+        t = kb.tuning
+        bars = piece["score"]
+        written = tuning_for(piece["tuning"]) if piece["tuning"] != t.edo else None
+
+        def here(step: int) -> tuple[int, float]:
+            return t.retuned_from(written, step) if written else (step, 0.0)
+
+        every = [here(s)[0] for bar in bars for events in bar["staves"].values() for _, _, steps in events for s in steps]
+        shift = self._fit_octaves(every) * t.edo
+        head = {"id": piece["id"], "title": piece["title"], "composer": piece.get("composer", ""), "written_for": piece["mode"],
+                "bars": len(bars), "level": piece["level"], "source": piece["source"]}
+        if written:
+            worst = max((abs(here(s)[1]) for bar in bars for events in bar["staves"].values() for _, _, steps in events for s in steps), default=0.0)
+            head["approximated"] = (f"written for {piece['tuning']} notes per octave, played here on the nearest notes of {t.edo}: up to "
+                                    f"{worst:.0f} cents off, and notes that differ there may fall on one key here. Say so; switching the "
+                                    f"tuning is better when the piece is the point.")
+        if shift:
+            head["moved"] = f"{abs(shift) // t.edo} octave{'s' if abs(shift) != t.edo else ''} {'up' if shift > 0 else 'down'} to fit the keyboard"
+        if first is None:
+            metres, last = [], None
+            for bar in bars:
+                if bar["time"] != last:
+                    metres.append(f"bar {bar['n']}: {bar['time']}")
+                    last = bar["time"]
+            head["metre"] = metres[:12]
+            head["note"] = ("get with phrase = a bar number and phrases = how many bars (up to 4) gives those bars as steps; part = upper "
+                            "(right hand), lower (left hand) or both. Teach hands separately first, a bar or two at a time.")
+            return head
+        if not 1 <= first <= len(bars):
+            raise TutorError(f"phrase (the bar) must be between 1 and {len(bars)}")
+        part = "upper" if part in ("auto", "melody") else part
+        if part not in ("upper", "lower", "both"):
+            raise TutorError("part must be upper (right hand), lower (left hand) or both")
+        chosen = bars[first - 1:first - 1 + max(1, min(count, 4))]
+        moments: dict[float, set[int]] = {}
+        at = 0.0
+        for bar in chosen:
+            for staff, events in bar["staves"].items():
+                if part in (staff, "both"):
+                    for beat, _, steps in events:
+                        moments.setdefault(round(at + beat, 4), set()).update(here(s)[0] + shift for s in steps)
+            at += bar["length"]
+        times = sorted(moments)
+        steps, missing = [], []
+        for i, when in enumerate(times):
+            pitches = sorted(moments[when])
+            missing.extend(t.label(p) for p in pitches if p not in kb._by_pitch)
+            length = round((times[i + 1] if i + 1 < len(times) else at) - when, 3)
+            step = {"notes": [t.label(p) for p in pitches]} if len(pitches) > 1 else {"note": t.label(pitches[0])}
+            if length != 1:
+                step["beats"] = length
+            steps.append(step)
+        if times and times[0] > 0:
+            steps.insert(0, {"rest": True, "beats": times[0]})
+        last_bar = chosen[-1]["n"]
+        head.update({"bars_given": f"{chosen[0]['n']}" + (f"-{last_bar}" if len(chosen) > 1 else ""), "time": chosen[0]["time"], "part": part,
+                     "steps": steps})
+        if missing:
+            head["not_on_this_keyboard"] = list(dict.fromkeys(missing))
+        head["note"] = ("Pass steps to demo (lengths are in 'beats', one beat = a quarter note), then run_exercise; fingering gives the fingers. "
+                        + (f"Next: bar {last_bar + 1}." if last_bar < len(bars) else "This is the last bar."))
+        return head
+
     def _library_overview(self) -> dict:
         t = self.keyboard.tuning
         counts = self.music.counts()
@@ -1414,11 +1480,14 @@ class Tutor:
             words = {"makam": "Turkish makam music, written for 53 steps per octave: teaching examples, seyir (the short melodic path "
                               "that shows a makam), folk songs, songs",
                      "chant": "Gregorian chant: one voice, no metre, built on pure fifths; playable in any tuning, exact in 53; over a drone on the final",
+                     "composition": "pieces composed for a particular tuning, in two staves, bar by bar (get with phrase = bar number, "
+                                    "part = upper, lower or both)",
                      "jazz": "jazz standards: the chord changes of about 1,400 tunes (form 'Medium Swing', 'Ballad', ...), and about 500 older "
                              "songs as lead sheets with melody (form 'lead sheet'); chords are spelled for the current tuning"}
             out["pieces"] = {
                 trad: {"what": words.get(trad, trad), "pieces_by_level": {str(k): v for k, v in sorted(levels.items())},
-                       "playable_now": trad != "makam" or t.edo == 53,
+                       "playable_now": (t.edo == 53 if trad == "makam" else "in the tuning each was written for, or with nearest=true"
+                                        if trad == "composition" else True),
                        "most_common": [f"{m} ({n})" for m, n in self.music.modes(trad, 10)]}
                 for trad, levels in counts.items()}
         out["ragas"] = {"what": "raga outlines (scale, ascent, descent, characteristic phrase, drone) as a model on the nearest steps of the "
@@ -1468,6 +1537,8 @@ class Tutor:
                 raise TutorError(f"this piece is written in {piece['tuning']} steps per octave and the keyboard is in {t.edo}. "
                                  f"Switch with tuning to {piece['tuning']}, or ask again with nearest=true to play it here on the "
                                  f"nearest notes (an approximation), or choose another piece.")
+            if piece.get("score"):
+                return self._score_bars(piece, phrase, phrases, part)
             pitches, off = self._piece_pitches(piece, theory_pitches)
             shift = self._fit_octaves([p for p in pitches if p is not None]) * t.edo
             pitches = [None if p is None else p + shift for p in pitches]
