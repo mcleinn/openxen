@@ -420,6 +420,9 @@ def leadsheets(zip_path: Path):
 # Machine-readable scores under reference/music/, each `{"title", "composer", "tuning", "bars": [{"n", "time",
 # "staves": {"upper": [{"beat", "dur", "notes": [{"step"}]}], "lower": [...]}}]}` (beat = 1 + quarter notes into
 # the bar; step = steps of the piece's tuning above its lowest reference). How each was made is in its folder.
+# Where two sources differ (the print and a recording), a note carries both readings:
+# `{"step": 48, "source": "print", "also": [{"step": 47, "source": "recording"}]}`; they are kept per bar
+# as `variants` and handed to the tutor with the bar.
 SCORES = [
     ("woyten16/dont_take_five.json", "dont-take-five", 4, "read from the MuseScore PDF (transcription by Stephen Weigel)"),
     ("woyten/final/ephemeral_happiness.json", "ephemeral-happiness", 4, "optical recognition of the score, accidentals revised"),
@@ -430,17 +433,23 @@ def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
     data = json.loads(path.read_text(encoding="utf-8"))
     bars = []
     for bar in data.get("bars", []):
-        staves = {}
+        staves, variants = {}, []
         for staff, events in (bar.get("staves") or {}).items():
             kept = []
             for e in events:
                 steps = [n["step"] for n in e.get("notes", []) if isinstance(n.get("step"), int)]
                 if steps and not e.get("rest") and float(e.get("dur", 0)) > 0:
                     kept.append([round(float(e["beat"]) - 1.0, 4), round(float(e["dur"]), 4), sorted(set(steps))])
+                    for n in e["notes"]:
+                        for other in n.get("also") or []:
+                            variants.append({"staff": staff, "beat": round(float(e["beat"]) - 1.0, 4), "step": n["step"],
+                                             "source": n.get("source", "print"), "other": other["step"], "other_source": other.get("source", "recording")})
             staves[staff] = kept
         num, _, den = str(bar.get("time") or "4/4").partition("/")
         bars.append({"n": bar.get("n", len(bars) + 1), "time": bar.get("time") or "4/4",
                      "length": round(4.0 * float(num) / float(den or 4), 4), "staves": staves})
+        if variants:
+            bars[-1]["variants"] = variants
     if not bars:
         return None
     tuning = data["tuning"]["edo"] if isinstance(data["tuning"], dict) else data["tuning"]      # either the number or {"edo": ...}

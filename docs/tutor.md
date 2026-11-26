@@ -440,6 +440,11 @@ use channels 1 to 5, so channel 10 is free. Timing passes USB polling, an HTTP r
 thread scheduling: about 10 ms of jitter, fine for these bands, too coarse to judge an expert.
 Wait-mode exercises (`run_exercise`) have no pulse and are not timed.
 
+Where the sources of a transcription differ on a note (the printed score and a recording), the
+score file keeps both: `{"step": 48, "source": "print", "also": [{"step": 47, "source":
+"recording"}]}`. The library carries them per bar, and `library get` reports them as
+`two_readings` (bar, beat, hand, what each source has) in the overview and with the bar.
+
 ## Layouts for any tuning
 
 `host/layouts/isomorphic.py` generates a Bosanquet-style layout for any number of notes per octave

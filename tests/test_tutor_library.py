@@ -669,6 +669,8 @@ def test_a_score_in_two_staves_comes_bar_by_bar(tmp_path):
             "lower": [{"beat": 1.0, "dur": 3.0, "notes": [{"step": 93}, {"step": 111}]}]}},
         {"n": 2, "time": "2/4", "staves": {"upper": [{"beat": 1.5, "dur": 1.5, "notes": [{"step": 142}]}], "lower": []}},
     ]}
+    # where the print and the recording differ, the note carries both readings
+    score["bars"][1]["staves"]["upper"][0]["notes"][0].update(source="print", also=[{"step": 141, "source": "recording"}])
     (source / "woyten16" / "dont_take_five.json").write_text(json.dumps(score), encoding="utf-8")
     assert build.build(source, out) == {"scores": 1}
     library = lib.Library(out)
@@ -679,6 +681,11 @@ def test_a_score_in_two_staves_comes_bar_by_bar(tmp_path):
     try:
         head = t.library("get", id=entry["id"])
         assert head["bars"] == 2 and head["metre"] == ["bar 1: 3/4", "bar 2: 2/4"] and "steps" not in head
+        assert "bar 2" in head["two_readings"] and "two_readings" not in t.library("get", id=entry["id"], phrase=1)
+        (two,) = t.library("get", id=entry["id"], phrase=2)["two_readings"]
+        assert two == {"bar": 2, "beat": 1.5, "hand": "right", "the print has": "G4 (18)", "given in steps": "the print's note",
+                       "the recording has": "vG4 (17)"}
+        assert "two_readings" not in t.library("get", id=entry["id"], phrase=2, part="lower")
         upper = t.library("get", id=entry["id"], phrase=1)
         assert upper["part"] == "upper" and upper["steps"] == [{"note": "C4 (0)"}, {"note": "D4 (5)", "beats": 0.5}, {"note": "E4 (10)", "beats": 1.5}]
         lower = t.library("get", id=entry["id"], phrase=1, part="lower")
