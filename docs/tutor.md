@@ -286,6 +286,16 @@ use channels 1 to 5, so channel 10 is free. Timing passes USB polling, an HTTP r
 thread scheduling: about 10 ms of jitter, fine for these bands, too coarse to judge an expert.
 Wait-mode exercises (`run_exercise`) have no pulse and are not timed.
 
+## Mridangam
+
+`host/synth/mridangam.scd` plays recorded mridangam strokes (Thom, Num, Tha, Thi, Dhin, Dheem, Cha,
+Bheem, Ta, Tham) as an instrument of its own: a second SuperCollider instance with its own sound
+server (port 57140), driven by OSC (`/mridangam/stroke <name> <loudness 0..1>` on port 57141), so it
+shares neither a MIDI channel nor a synth with the piano patch. `host/synth/mridangam_kit.py` selects
+180 of the 6,977 samples of the DrumGizmo kit (`reference/music/mridangam/MridangamDG-Full.zip`, from
+the Pi; six loudness layers, three takes each). Started by hand: `sclang host/synth/mridangam.scd`.
+Not yet connected to the tutor's `rhythm` and `improvise` tools.
+
 ## Tuning notes
 
 `host/tutor/wiki_build.py` converts the Xenharmonic Wiki's own backup
