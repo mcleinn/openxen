@@ -137,6 +137,44 @@ def test_rhythm_tool_calibrates_and_judges(tmp_path):
         tutor.pump.stop()
 
 
+def test_mridangam_as_the_pulse_and_for_demonstrations():
+    from tutor.osc import Sender, encode
+    # OSC encoding: address and type tags padded to four bytes, big-endian float
+    assert encode("/mridangam/stroke", "Thom", 0.5) == b"/mridangam/stroke\0\0\0,sf\0Thom\0\0\0\0" + bytes.fromhex("3f000000")
+    assert encode("/x", 3)[-4:] == bytes.fromhex("00000003")
+
+    fake = FakeXentool(sample_setup(53, (0,)))
+    drum = Sender("127.0.0.1", 9)            # the discard port: nothing listens, nothing fails
+    tutor = Tutor(fake, mridangam=drum)
+    try:
+        assert any("mridangam" in s for s in tutor.rhythm()["sounds"])
+        # demo: count-in clicks, then the pattern as strokes, the first of each cycle deep
+        out = tutor.rhythm("demo", pattern="tresillo", tempo_bpm=200, cycles=2, sound="mridangam")
+        assert out["demonstrated"] == "tresillo" and len(fake.clicks) == 4
+        strokes = [(m[1], m[2]) for m in drum.sent]
+        # the first tap of a cycle deep, taps on a beat "Thi", taps between beats "Ta"
+        assert [s for s, _ in strokes] == ["Thom", "Ta", "Thi"] * 2 and strokes[0][1] > strokes[1][1]
+        # play: the pulse on the drum, no clicks
+        fake.clicks.clear()
+        drum.sent.clear()
+        played = tutor.rhythm("play", pattern="tresillo", tempo_bpm=200, cycles=1, sound="mridangam")
+        assert played["due"] == 3 and not fake.clicks and [m[1] for m in drum.sent] == ["Thom", "Thi", "Thi", "Thi"] * 2
+        with pytest.raises(TutorError, match="sound must be"):
+            tutor.rhythm("play", pattern="tresillo", sound="bongos")
+    finally:
+        tutor.pump.stop()
+    plain = Tutor(FakeXentool(sample_setup(53, (0,))))
+    try:
+        assert plain.rhythm()["sounds"] == ["click"]
+        with pytest.raises(TutorError, match="no mridangam is set up"):
+            plain.rhythm("play", pattern="tresillo", sound="mridangam")
+        # a demonstration without a drum: the pattern as clicks
+        out = plain.rhythm("demo", pattern="tresillo", tempo_bpm=200, cycles=1)
+        assert out["sound"] == "click" and len(plain.client.clicks) == 4 + 3
+    finally:
+        plain.pump.stop()
+
+
 def test_an_older_xentool_gets_the_click_as_a_short_high_note():
     class Older(FakeXentool):
         def midi(self, notes):

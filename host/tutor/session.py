@@ -28,10 +28,11 @@ def harmony_model_xen(quality: str) -> bool:
     return bool(_CHORDS.get(quality, {}).get("xen"))
 from . import harmony as harmony_model
 from . import rhythm as rhythm_model
+from .osc import Sender
 from .player import Player
 from .wiki import Wiki
 from .engine import Exercise, Finished, Mark, Press, ShowHint, Step, StepDone, Unmark
-from .theory import CHORDS, SCALES, Chord
+from .theory import CHORDS, SCALES, Chord, tuning_for
 from .xt import EventPump, XentoolError
 
 Rgb = tuple[int, int, int]
@@ -129,7 +130,7 @@ PRACTICE_NOTE = (
 
 class Tutor:
     def __init__(self, client, tilt_deg: float = 0.0, practice: bool = False, player: Player | None = None,
-                 library: lib.Library | None = None, wiki: Wiki | None = None):
+                 library: lib.Library | None = None, wiki: Wiki | None = None, mridangam: Sender | None = None):
         self.client = client
         self.wiki = wiki or Wiki()
         self.music = library or lib.Library()
@@ -139,6 +140,7 @@ class Tutor:
         self.lights = Lights(client)
         self.hand_model = self.player.hand()    # an average hand until the player's is measured
         self._click_by_midi = True              # until xentool turns out not to know /api/midi
+        self.mridangam = mridangam              # OSC sender to the mridangam patch, or None if there is none
         self._keyboard: Keyboard | None = None
         self._kb_lock = threading.Lock()
         self._activity = threading.Lock()   # one demo / listen / exercise at a time
@@ -933,17 +935,25 @@ class Tutor:
             steps.append(step)
         return steps, list(dict.fromkeys(missing))
 
-    def _piece_pitches(self, piece: dict, theory: bool) -> list[int | None]:
+    def _piece_pitches(self, piece: dict, theory: bool) -> tuple[list[int | None], float]:
+        """The piece's pitches in the current tuning, and the largest deviation in cents if
+        it was written for another tuning and is played here on the nearest steps."""
         t = self.keyboard.tuning
+        written = tuning_for(piece["tuning"]) if piece.get("tuning") and piece["tuning"] != t.edo else None
         out: list[int | None] = []
+        worst = 0.0
         for i, (pitch, _) in enumerate(piece["notes"]):
             if pitch is None:
                 out.append(None)
             elif isinstance(pitch, str):
                 out.append(t.parse(pitch)[0])
             else:
-                out.append(piece["theory"].get(str(i), pitch) if theory else pitch)
-        return out
+                pitch = piece["theory"].get(str(i), pitch) if theory else pitch
+                if written is not None:
+                    pitch, off = t.retuned_from(written, pitch)
+                    worst = max(worst, abs(off))
+                out.append(pitch)
+        return out, worst
 
     # --- jazz changes ---
 
@@ -1430,7 +1440,7 @@ class Tutor:
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
                 sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half") -> dict:
+                rhythm: str = "half", nearest: bool = False) -> dict:
         """Teaching material. overview | search | get | raga | pattern | fifths | comma."""
         action = action.strip().lower()
         kb = self.keyboard
@@ -1454,16 +1464,20 @@ class Tutor:
             piece = self.music.piece(id)
             if piece is None:
                 raise TutorError(f"there is no piece '{id}' in the library; ids come from action search")
-            if piece["tuning"] and piece["tuning"] != t.edo:
+            if piece["tuning"] and piece["tuning"] != t.edo and not nearest:
                 raise TutorError(f"this piece is written in {piece['tuning']} steps per octave and the keyboard is in {t.edo}. "
-                                 f"Switch with tuning to {piece['tuning']}, or choose another piece.")
-            pitches = self._piece_pitches(piece, theory_pitches)
+                                 f"Switch with tuning to {piece['tuning']}, or ask again with nearest=true to play it here on the "
+                                 f"nearest notes (an approximation), or choose another piece.")
+            pitches, off = self._piece_pitches(piece, theory_pitches)
             shift = self._fit_octaves([p for p in pitches if p is not None]) * t.edo
             pitches = [None if p is None else p + shift for p in pitches]
             head = {"id": piece["id"], "title": piece["title"], "tradition": piece["tradition"], "mode": piece["mode"], "form": piece["form"],
                     "meter": piece["meter"], "level": piece["level"], "source": piece["source"], "licence": piece["licence"]}
             if piece.get("composer"):
                 head["composer"] = piece["composer"]
+            if piece["tuning"] and piece["tuning"] != t.edo:
+                head["approximated"] = (f"written in {piece['tuning']} steps per octave, played here on the nearest notes of {t.edo}: "
+                                        f"up to {off:.0f} cents off, and notes that differ there may fall on one key here. Say so.")
             if shift:
                 head["moved"] = f"{abs(shift) // t.edo} octave{'s' if abs(shift) != t.edo else ''} {'up' if shift > 0 else 'down'} to fit the keyboard"
             if piece["tradition"] == "chant":
@@ -1847,6 +1861,21 @@ class Tutor:
 
     # --- rhythm ---
 
+    def _sound_of(self, sound: str) -> str:
+        sound = (sound or "click").strip().lower()
+        if sound not in ("click", "mridangam"):
+            raise TutorError("sound must be click or mridangam")
+        if sound == "mridangam" and self.mridangam is None:
+            raise TutorError("no mridangam is set up on this machine (start host/synth/mridangam.scd and the tutor with --mridangam); use sound click")
+        return sound
+
+    def _beat(self, accent: bool = False, sound: str = "click", stroke: str | None = None) -> None:
+        """One beat of the pulse: a click, or a mridangam stroke (a deep one on the accent)."""
+        if sound == "mridangam" and self.mridangam is not None:
+            self.mridangam.send("/mridangam/stroke", stroke or ("Thom" if accent else "Thi"), 0.9 if accent else 0.55)
+        else:
+            self._click(accent)
+
     def _click(self, accent: bool = False) -> None:
         """One metronome click: a note on the percussion channel (MIDI channel 10, the wood
         blocks of General MIDI), which the synth plays as a tick and a drum plugin as what
@@ -1860,9 +1889,13 @@ class Tutor:
         key = self.keyboard.range()[1]
         self.client.notes(on=[((key.board, key.key), 115 if accent else 75, 50)])
 
-    def _clicked_take(self, clicks: list[tuple[float, bool]], end: float, progress: Progress | None, label: str) -> tuple[list[float], list[float]]:
+    def _clicked_take(self, clicks: list[tuple[float, bool]], end: float, progress: Progress | None, label: str,
+                      sound: str = "click", extra: list[tuple[float, str, float]] | None = None) -> tuple[list[float], list[float]]:
         """Sound the clicks at their times (seconds from now, accent) and collect the taps
         until `end`. Returns the click times and the tap times, both on the same clock."""
+        # `extra`: mridangam strokes at their own times (seconds, name, loudness), merged into the schedule
+        events = sorted([(at, "beat", accent) for at, accent in clicks] + [(at, name, loud) for at, name, loud in (extra or [])],
+                        key=lambda e: e[0])
         self._begin()
         q = self.pump.subscribe()
         taps: list[float] = []
@@ -1871,7 +1904,7 @@ class Tutor:
                 raise TutorError(self.pump.error)
             zero = time.monotonic() + 0.3
             sounded = []
-            for n, (at, accent) in enumerate(clicks):
+            for n, (at, what, accent) in enumerate(events):
                 while True:
                     ev = self._events_until(q, zero + at)
                     if ev is None:
@@ -1880,10 +1913,13 @@ class Tutor:
                         taps.append(ev.t)
                 if self._cancel.is_set():
                     raise TutorError("stopped")
-                self._click(accent)
-                sounded.append(zero + at)
-                if progress and (accent or len(clicks) <= 24):
-                    progress(n + 1, len(clicks), label)
+                if what == "beat":
+                    self._beat(bool(accent), sound)
+                    sounded.append(zero + at)
+                    if progress and (accent or len(clicks) <= 24):
+                        progress(len(sounded), len(clicks), label)
+                elif self.mridangam is not None:
+                    self.mridangam.send("/mridangam/stroke", what, accent)
             while True:
                 ev = self._events_until(q, zero + end)
                 if ev is None:
@@ -1898,11 +1934,12 @@ class Tutor:
 
     def rhythm(self, action: str = "patterns", pattern: str | None = None, tempo_bpm: float = 90, cycles: int = 2,
                level: str = "beginner", onsets: list[int] | None = None, pulses: int | None = None, beats: int | None = None,
-               progress: Progress | None = None) -> dict:
-        """Rhythm practice with a click. patterns | calibrate | play | status | reset."""
+               sound: str = "click", progress: Progress | None = None) -> dict:
+        """Rhythm practice with a click or a mridangam. patterns | calibrate | demo | play | status | reset."""
         action = action.strip().lower()
         if action == "patterns":
-            return {"patterns": {name: {"what": p["what"], "taps_per_cycle": len(p["onsets"]), "clicks_per_cycle": p["beats"]}
+            sounds = ["click"] + (["mridangam (recorded strokes; also for demo, which plays the pattern itself)"] if self.mridangam else [])
+            return {"sounds": sounds, "patterns": {name: {"what": p["what"], "taps_per_cycle": len(p["onsets"]), "clicks_per_cycle": p["beats"]}
                                  for name, p in rhythm_model.PATTERNS.items()},
                     "own": "or give your own: onsets (which of the equal parts get a tap, counted from 0), pulses (how many parts), beats (clicks per cycle)",
                     "how": "rhythm action play with pattern, tempo_bpm, cycles and level; calibrate once before the first take."}
@@ -1919,11 +1956,12 @@ class Tutor:
         if not 40 <= tempo_bpm <= 200:
             raise TutorError("tempo_bpm must be between 40 and 200")
         self._need_player("rhythm")
+        sound = self._sound_of(sound)
         beat_s = 60.0 / tempo_bpm
         if action == "calibrate":
             count = 20
             clicks = [(i * beat_s, i % 4 == 0) for i in range(count)]
-            sounded, taps = self._clicked_take(clicks, count * beat_s, progress, "tap along")
+            sounded, taps = self._clicked_take(clicks, count * beat_s, progress, "tap along", sound)
             found = rhythm_model.offset_from_taps(sounded, taps)
             if not found:
                 raise TutorError(f"heard {len(taps)} taps for {count} clicks, too few to measure. Ask the player to tap any key exactly with "
@@ -1933,8 +1971,8 @@ class Tutor:
             return {"calibrated": True, "offset_ms": round(offset * 1000), "spread_ms": round(spread * 1000), "taps_used": used,
                     "meaning": ("The player's taps lie this far from the click on this equipment (negative: before it). It is taken away "
                                 "from now on. A spread under about 30 ms is steady tapping; above 60 ms repeat the calibration.")}
-        if action != "play":
-            raise TutorError("action must be one of: patterns, calibrate, play, status, reset")
+        if action not in ("play", "demo"):
+            raise TutorError("action must be one of: patterns, calibrate, demo, play, status, reset")
         if onsets:
             if not pulses or not beats or not all(isinstance(o, int) and 0 <= o < pulses for o in onsets):
                 raise TutorError("an own pattern needs onsets (numbers from 0), pulses (more than every onset) and beats (clicks per cycle)")
@@ -1954,7 +1992,19 @@ class Tutor:
         accents = set(chosen.get("accents", [0]))
         clicks = [(i * beat_s, i == 0) for i in range(lead)] + \
                  [((lead + c * per_cycle + b) * beat_s, b in accents) for c in range(cycles) for b in range(per_cycle)]
-        sounded, taps = self._clicked_take(clicks, total_beats * beat_s + beat_s / 2, progress, name)
+        if action == "demo":
+            # the pattern itself, played for the player to hear: on the mridangam the taps as strokes over a soft pulse
+            pulse = per_cycle * beat_s / chosen["pulses"]
+            strokes = [((lead + c * per_cycle) * beat_s + o * pulse, "Thom" if o == 0 else "Ta" if (o * per_cycle) % chosen["pulses"] else "Thi", 0.95 if o == 0 else 0.75)
+                       for c in range(cycles) for o in chosen["onsets"]]
+            if sound == "mridangam":
+                self._clicked_take([(t, a) for t, a in clicks[:lead]], total_beats * beat_s + beat_s / 2, progress, name, "click", strokes)
+            else:
+                # with clicks only: the pattern as accented clicks, no separate pulse after the count-in
+                self._clicked_take(clicks[:lead] + [(t, True) for t, _, _ in strokes], total_beats * beat_s + beat_s / 2, progress, name)
+            return {"demonstrated": name, "what": chosen["what"], "tempo_bpm": tempo_bpm, "cycles": cycles, "sound": sound,
+                    "note": "Now let the player try it: rhythm action play with the same pattern and tempo."}
+        sounded, taps = self._clicked_take(clicks, total_beats * beat_s + beat_s / 2, progress, name, sound)
         start = sounded[lead] if len(sounded) > lead else sounded[0] + lead * beat_s
         due = rhythm_model.targets(chosen, cycles, start, beat_s)
         offset = (self.player.offset_ms or 0.0) / 1000
@@ -1976,7 +2026,7 @@ class Tutor:
 
     def improvise(self, changes: list[dict], rule: str = "free", allowed: list[str] | None = None, tempo_bpm: float = 90,
                   backing: str = "chords", count_in: int = 4, choruses: int = 1, lights: bool = True,
-                  click: bool = True, progress: Progress | None = None) -> dict:
+                  click: bool = True, sound: str = "click", progress: Progress | None = None) -> dict:
         """The player improvises over chord changes while the server keeps time: it sounds
         a backing, lights the notes of the current chord, records what is played against
         which chord, and checks one simple rule."""
@@ -1995,6 +2045,7 @@ class Tutor:
             raise TutorError("tempo_bpm must be between 30 and 240")
         if rule == "only" and not allowed:
             raise TutorError("rule only needs allowed: the notes that may be played (in any octave)")
+        sound = self._sound_of(sound)
         allowed_pcs = {self._pitch(n)[0] % edo for n in allowed or []}
         beat_s = 60.0 / tempo_bpm
         chords = []
@@ -2036,7 +2087,7 @@ class Tutor:
             for n in range(max(0, int(count_in))):       # the count-in
                 if self._cancel.is_set():
                     break
-                self._click(n == 0)
+                self._beat(n == 0, sound)
                 if progress:
                     progress(n + 1, count_in, "count-in")
                 self._cancel.wait(beat_s)
@@ -2068,9 +2119,9 @@ class Tutor:
                 beats_here = max(1, round(chord["beats"])) if click else 1
                 for b in range(beats_here):
                     if click and b:
-                        self._click(False)
+                        self._beat(False, sound)
                     elif click:
-                        self._click(i == 0 or bar_start)
+                        self._beat(i == 0 or bar_start, sound)
                     until = at + (length * (b + 1) / beats_here)
                     while True:
                         ev = self._events_until(q, until)

@@ -211,6 +211,10 @@ cd host && python -m tutor.library_build
 Reference material is for private use and is never published with the tutor, so pieces are
 included regardless of their copyright status; nothing under `reference/` or `build/` is in git.
 
+A piece written for one tuning can be played in another on the nearest notes
+(`library get ... nearest=true`): `Tuning.retuned_from` uses xenharmlib's `retune`, the same
+operation for any pair of tunings, and the result states the largest deviation in cents.
+
 A piece is cut into phrases (at rests and bar lines, at most 12 notes) and handed out one
 phrase at a time as steps with note lengths, moved by whole octaves to fit the connected
 keyboard. `demo` follows the lengths (`beats` per step). Levels 1-5 grade by form, length and
@@ -294,7 +298,8 @@ server (port 57140), driven by OSC (`/mridangam/stroke <name> <loudness 0..1>` o
 shares neither a MIDI channel nor a synth with the piano patch. `host/synth/mridangam_kit.py` selects
 180 of the 6,977 samples of the DrumGizmo kit (`reference/music/mridangam/MridangamDG-Full.zip`, from
 the Pi; six loudness layers, three takes each). Started by hand: `sclang host/synth/mridangam.scd`.
-Not yet connected to the tutor's `rhythm` and `improvise` tools.
+The tutor uses it when started with `--mridangam` (`play.ps1 -Mridangam` starts both): `rhythm`
+and `improvise` take `sound: "mridangam"` for the pulse, and `rhythm demo` plays a pattern on it.
 
 ## Tuning notes
 

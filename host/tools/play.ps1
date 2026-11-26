@@ -21,12 +21,14 @@ environment variable OPENXEN_TUTOR_TOKEN (the MCP client sends it as a bearer to
 -TutorTailscale listens on this machine's Tailscale address only (same token); other tailnet
 machines reach it encrypted, the local network does not see it. The token may be stored as a
 user environment variable; it is read from there if this shell does not have it yet.
+-Mridangam: also start the mridangam sample player (host\synth\mridangam.scd, a second SuperCollider
+instance) and let the tutor's rhythm tools use it.
 -Tilt: how the keyfield lies in front of the player: 0 = key rows level (a single module square
 on the desk), 'lumatone' = the assembled case (16.1 degrees).
 #>
 param([int]$Edo = 53, [switch]$Wooting, [switch]$Stop,
       [ValidateSet('supercollider', 'amsynth')][string]$Synth = 'supercollider',
-      [switch]$Tutor, [switch]$TutorLan, [switch]$TutorTailscale, [string]$Tilt = '0')
+      [switch]$Tutor, [switch]$TutorLan, [switch]$TutorTailscale, [string]$Tilt = '0', [switch]$Mridangam)
 
 $Repo     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Xentool  = 'C:\Dev-Free\xentool\target\release\xentool.exe'
@@ -92,6 +94,12 @@ if ($Tutor -or $TutorNet) {
 Start-Process -FilePath $Xentool -ArgumentList $ServeArgs -WorkingDirectory $XenDir
 if ($Tutor -or $TutorNet) {
     $TutorArgs = @('-m', 'tutor', '--tilt', $Tilt)
+    if ($Mridangam) {
+        $Patch = Join-Path $Repo 'host\synth\mridangam.scd'
+        $Running = Get-CimInstance Win32_Process -Filter "Name='sclang.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'mridangam' }
+        if (-not $Running) { Start-Process -FilePath $Sclang -ArgumentList "`"$Patch`"" -WorkingDirectory (Split-Path $Sclang) -WindowStyle Minimized }
+        $TutorArgs += '--mridangam'
+    }
     if ($TutorHost) { $TutorArgs += @('--host', $TutorHost) }
     Start-Sleep 2          # xentool's API is up before the tutor asks for the keyboard
     Start-Process -FilePath python -ArgumentList $TutorArgs -WorkingDirectory (Join-Path $Repo 'host')

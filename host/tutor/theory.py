@@ -363,6 +363,16 @@ class Tuning:
             return _ALIASES[low]
         raise TheoryError(f"unknown chord quality '{text}'. Available: {', '.join(CHORDS)}.")
 
+    def retuned_from(self, other: "Tuning", pitch: int) -> tuple[int, float]:
+        """A pitch of another tuning on the nearest step of this one, and how far off that
+        is in cents (positive: this tuning's step is higher). The approximation is
+        xenharmlib's `retune`, the same operation for every pair of tunings; this is the one
+        place where music written for one tuning is carried to another."""
+        if other.edo == self.edo:
+            return pitch, 0.0
+        step = other._tuning.pitch(pitch).retune(self._tuning).pitch_index
+        return step, round(step * 1200.0 / self.edo - pitch * 1200.0 / other.edo, 1)
+
     def chord(self, root: int, quality: str, inversion: int = 0, root_name: str | None = None) -> Chord:
         """A chord on `root` in close position; `inversion` 0 = root in the bass."""
         quality = self.quality_key(quality)

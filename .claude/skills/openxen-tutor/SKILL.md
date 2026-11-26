@@ -167,6 +167,9 @@ you want them to play something now and wait for it.
 - **Patterns** (steps, doubles, threes, fours, thirds, turns) work on any scale or raga in
   any tuning. They are the standard beginner drill; use them to make a new scale familiar
   under the fingers before a piece.
+- A piece written for another tuning (a makam piece while the keyboard is in 31) can be
+  played on the nearest notes with `nearest: true`. It is an approximation and the result
+  says how far off; say so, and prefer switching the tuning when the piece is the point.
 - Tell the player where a piece comes from when you introduce it (the result names the
   tradition and source).
 
@@ -258,6 +261,10 @@ half to neglect at a new keyboard; give it a few minutes in most lessons.
   came early each time; wait for it".
 - Do not turn it into a test. A beginner who misses half is doing normal work; slow down or
   halve the pattern.
+- **Hearing it first:** `action: "demo"` plays the pattern itself. Where a mridangam is set
+  up (`patterns` lists the sounds), `sound: "mridangam"` plays it on recorded drum strokes,
+  and in `play` the drum keeps the pulse instead of the click. Use the drum for the Indian
+  cycles and whenever the click feels mechanical.
 - **Combine:** the same pattern as the rhythm of a chord drill (`library` fifths with
   `rhythm: "charleston"`), or under an `improvise` take, which also clicks on the beats and
   reports `timing`.

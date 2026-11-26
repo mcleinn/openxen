@@ -29,6 +29,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 
 from .board import LUMATONE_TILT_DEG, BoardError
 from .calllog import CallLog
+from .osc import Sender
 from .player import Player
 from .session import PRACTICE_NOTE, Tutor, TutorError
 from .theory import TheoryError
@@ -192,7 +193,7 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
                 sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half") -> str:
+                rhythm: str = "half", nearest: bool = False) -> str:
         """Music to teach with, ready as steps. action "overview": what there is.
         "search": pieces by tradition (makam, chant, jazz), mode (a makam such as Rast, or
         "mode 1"), form, level (1 easiest .. 5; gives that level and below) or text;
@@ -216,9 +217,11 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         Jazz: tunes come as chord changes (get with phrase=N gives section N as chord steps;
         voicing full, shell = root-third-seventh, guide = third and seventh, root; sevenths
         auto, harmonic or plain; part "changes" or "melody" for lead sheets that have both).
-        Makam pieces need the keyboard in 53 steps per octave. Teach one phrase at a time."""
+        Makam pieces are written in 53 steps per octave: switch the tuning, or pass
+        nearest=true to play a piece written for another tuning on the nearest notes of
+        this one (an approximation; the result says how far off). One phrase at a time."""
         return guard(tutor.library, action, id, phrase, phrases, tradition, mode, form, level, text, limit, name, root, scale, theory_pitches,
-                     part, voicing, sevenths, plain_roots, direction, count, rhythm)
+                     part, voicing, sevenths, plain_roots, direction, count, rhythm, nearest)
 
     @server.tool()
     async def hand(ctx: Context, action: str = "status", hand: str = "right", fingers: list[int] | None = None,
@@ -267,7 +270,8 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
 
     @server.tool()
     async def rhythm(ctx: Context, action: str = "patterns", pattern: str | None = None, tempo_bpm: float = 90, cycles: int = 2,
-                     level: str = "beginner", onsets: list[int] | None = None, pulses: int | None = None, beats: int | None = None) -> str:
+                     level: str = "beginner", onsets: list[int] | None = None, pulses: int | None = None, beats: int | None = None,
+                     sound: str = "click") -> str:
         """Rhythm practice with a click; the player taps on any key. action "patterns":
         what there is (even notes, offbeats, Charleston, tresillo, claves, bossa, three
         against two, Indian tala cycles). "calibrate": 20 clicks to tap along to; measures
@@ -276,15 +280,18 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         of `pattern` (or your own: `onsets` out of `pulses` equal parts, `beats` clicks per
         cycle) at `tempo_bpm`; returns how many taps were on it, close, near, off, missed
         or extra for `level` (beginner, intermediate, advanced), whether the player is
-        ahead or behind, how steady, and the weakest taps. "status", "reset". Explain the
-        pattern and clap or demo it before a take; up to 60 seconds per call."""
+        ahead or behind, how steady, and the weakest taps. "demo": plays the pattern itself
+        for the player to hear before they try. `sound`: "click", or "mridangam" where one
+        is set up (recorded drum strokes: the pulse in play and calibrate, the pattern in
+        demo). "status", "reset". Explain or demo the pattern before a take; up to 60
+        seconds per call."""
         return await blocking(ctx, tutor.rhythm, action=action, pattern=pattern, tempo_bpm=tempo_bpm, cycles=cycles, level=level,
-                              onsets=onsets, pulses=pulses, beats=beats)
+                              onsets=onsets, pulses=pulses, beats=beats, sound=sound)
 
     @server.tool()
     async def improvise(ctx: Context, changes: list[dict], rule: str = "free", allowed: list[str] | None = None,
                         tempo_bpm: float = 90, backing: str = "chords", count_in: int = 4, choruses: int = 1,
-                        lights: bool = True, click: bool = True) -> str:
+                        lights: bool = True, click: bool = True, sound: str = "click") -> str:
         """The player improvises while you keep time and listen. `changes`: chord steps with
         their length in beats (a section from library get, or [{"notes": [...], "beats": 4,
         "label": "C7"}]). The server counts in, sounds the `backing` (chords, roots, drone,
@@ -296,10 +303,11 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         per chord what was played, how much of it belonged to the chord, what each chord
         started on, and whether the rule was met. Up to 150 seconds; tell the player the
         task and the tempo first. `lights` false to practise by ear; `click` false for
-        no metronome on the beats (the count-in stays). The result also says how the notes
+        no metronome on the beats (the count-in stays); `sound` "mridangam" plays the
+        beats on the drum where one is set up. The result also says how the notes
         sat on the beat (`timing`)."""
         return await blocking(ctx, tutor.improvise, changes=changes, rule=rule, allowed=allowed, tempo_bpm=tempo_bpm,
-                              backing=backing, count_in=count_in, choruses=choruses, lights=lights, click=click)
+                              backing=backing, count_in=count_in, choruses=choruses, lights=lights, click=click, sound=sound)
 
     @server.tool()
     async def listen(ctx: Context, max_seconds: float = 20, stop_after_silence: float = 2.0) -> str:
@@ -393,6 +401,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--log", metavar="FILE", help="record of every tool call, its answer and the key presses, one JSON "
                                                  "object per line (default: build/tutor-log/<date>.jsonl in the repository)")
     p.add_argument("--no-log", action="store_true", help="keep no record of tool calls")
+    p.add_argument("--mridangam", metavar="HOST:PORT", nargs="?", const="127.0.0.1:57141",
+                   help="a mridangam patch (host/synth/mridangam.scd) takes strokes here; without this option the rhythm tools use the click only")
     p.add_argument("--player", metavar="FILE", help="the player's measured hand and own fingerings "
                                                     "(default: host/tutor/state/player.json; 'none' keeps them in memory only)")
     args = p.parse_args(argv)
@@ -412,7 +422,11 @@ def main(argv: list[str] | None = None) -> int:
         player = Player()
     else:
         player = Player(args.player or Path(__file__).resolve().parent / "state" / "player.json")
-    tutor = Tutor(client, tilt_deg=args.tilt, practice=bool(args.fake), player=player)
+    drum = None
+    if args.mridangam:
+        host, _, port = args.mridangam.rpartition(":")
+        drum = Sender(host or "127.0.0.1", int(port))
+    tutor = Tutor(client, tilt_deg=args.tilt, practice=bool(args.fake), player=player, mridangam=drum)
 
     log = None
     if not args.no_log:

@@ -16,6 +16,7 @@ from tutor import library as lib  # noqa: E402
 from tutor import library_build as build  # noqa: E402
 from tutor.sample import sample_setup  # noqa: E402
 from tutor.session import Tutor, TutorError  # noqa: E402
+from tutor.theory import tuning_for  # noqa: E402
 from tutor.xt import FakeXentool  # noqa: E402
 
 HEADER = "Sira\tKod\tNota53\tNotaAE\tKoma53\tKomaAE\tPay\tPayda\tMs\tLNS\tBas\tSoz1\tOffset"
@@ -178,6 +179,16 @@ def test_makam_needs_53_and_chant_plays_in_any_tuning(built):
         assert "switch the tuning to 53" in t.library("search", tradition="makam")["note"]
         with pytest.raises(TutorError, match="Switch with tuning to 53"):
             t.library("get", id="makam/rast--ornek_oz--sofyan--1--ruhi_ayangil", phrase=1)
+        # on request: the nearest notes of this tuning (xenharmlib's retune), with the deviation stated
+        near = t.library("get", id="makam/rast--ornek_oz--sofyan--1--ruhi_ayangil", phrase=1, nearest=True)
+        assert "written in 53" in near["approximated"] and "cents off" in near["approximated"]
+        # G A B-two-commas-flat C in 53 (31, 40, 47, 0) land on G A (a note between Bb and B) C in 31 (18, 23, 27 or 28, 0)
+        got = [int(s["note"].split("(")[1][:-1]) for s in near["steps"][:4]]
+        assert got[:2] == [18, 23] and got[2] in (27, 28) and got[3] == 0
+        t53, t31 = tuning_for(53), tuning_for(31)
+        assert t31.retuned_from(t53, 212 + 31) == (124 + 18, pytest.approx(-5.1, abs=0.2))        # G: 701.9 -> 696.8 cents
+        assert t53.retuned_from(t53, 300) == (300, 0.0)
+        assert tuning_for(53).retuned_from(tuning_for(24), 96 + 7)[0] == 212 + 15                # 350 cents (a neutral third) -> 15 steps
         chant = t.library("get", id="chant/00007", phrase=1)
         assert [s["note"].split()[1] for s in chant["steps"]][:4] == ["(13)", "(18)", "(23)", "(26)"]       # F G A Bb in 31
     finally:
