@@ -294,22 +294,47 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
     @server.tool()
     async def rhythm(ctx: Context, action: str = "patterns", pattern: str | None = None, tempo_bpm: float = 90, cycles: int = 2,
                      level: str = "beginner", onsets: list[int] | None = None, pulses: int | None = None, beats: int | None = None,
-                     sound: str = "click") -> str:
+                     sound: str = "auto", tap: str | None = None, variant: int | None = None) -> str:
         """Rhythm practice with a click; the player taps on any key. action "patterns":
         what there is (even notes, offbeats, Charleston, tresillo, claves, bossa, three
-        against two, Indian tala cycles). "calibrate": 20 clicks to tap along to; measures
+        against two; and the cycles of the rhythm library by name: Hindustani talas with
+        their theka, Carnatic talas with their hand gestures, mridangam lessons, the usul
+        of Turkish makam music, each with how well the sources agree). "patterns" with
+        `pattern`: that cycle in full (sections, claps and waves, the drum's syllables,
+        what the sources disagree on, variants). "calibrate": 20 clicks to tap along to; measures
         how far this player's taps lie from the click on this equipment and takes that away
         from then on. Do it once before the first take. "play": a count-in, then `cycles`
         of `pattern` (or your own: `onsets` out of `pulses` equal parts, `beats` clicks per
         cycle) at `tempo_bpm`; returns how many taps were on it, close, near, off, missed
         or extra for `level` (beginner, intermediate, advanced), whether the player is
         ahead or behind, how steady, and the weakest taps. "demo": plays the pattern itself
-        for the player to hear before they try. `sound`: "click", or "mridangam" where one
-        is set up (recorded drum strokes: the pulse in play and calibrate, the pattern in
-        demo). "status", "reset". Explain or demo the pattern before a take; up to 60
-        seconds per call."""
+        for the player to hear before they try. `sound`: "auto" (a cycle on the drum of
+        its tradition where one is set up: a tala's theka on the tabla, a mridangam lesson
+        on the mridangam, an usul as dum and tek; else the click), "click", "mridangam" or
+        "tabla" (recorded drum strokes: the pulse in play and calibrate, the pattern in
+        demo). For a cycle, `tap` says what the player taps in play: "beats" (every beat
+        of the cycle), "claps" (only its claps) or "strokes" (every stroke of the drum);
+        `variant`: the number of one of its variants. Say what a result reports under
+        sources_disagree and sound_note. "status", "reset". Explain or demo the pattern
+        before a take; up to 60 seconds per call."""
         return await blocking(ctx, tutor.rhythm, action=action, pattern=pattern, tempo_bpm=tempo_bpm, cycles=cycles, level=level,
-                              onsets=onsets, pulses=pulses, beats=beats, sound=sound)
+                              onsets=onsets, pulses=pulses, beats=beats, sound=sound, tap=tap, variant=variant)
+
+    @server.tool()
+    def drone(action: str = "status", raga: str | None = None, root: str | None = None, notes: list[str] | None = None,
+              pace_s: float = 1.0, octave: int = 0, loudness: int = 50) -> str:
+        """A drone under the playing, as a tanpura gives it for a raga. action "start" with
+        `raga` (one of the library's) and `root` (where Sa lies, e.g. "C4"): the four
+        strings in the tuning the raga asks for (the fifth below Sa, Sa, Sa, low Sa; the
+        fourth or another note instead of the fifth where the raga has no Pa), struck one
+        after the other every `pace_s` seconds, round and round. Or `notes`: your own, in
+        the order they are struck. It returns at once and keeps sounding under demos,
+        exercises and the player's own playing until action "stop" (the stop tool ends it
+        too). `octave` -1 moves it an octave down, out of the way of the hands; `loudness`
+        1 to 127. "status": what is sounding. The notes are held notes of the keyboard's
+        own sound, not a tanpura's tone; the result names the rule behind the tuning and
+        where the sources disagree: say so."""
+        return guard(tutor.drone, action, raga, root, notes, pace_s, octave, loudness)
 
     @server.tool()
     async def improvise(ctx: Context, changes: list[dict], rule: str = "free", allowed: list[str] | None = None,
@@ -426,6 +451,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-log", action="store_true", help="keep no record of tool calls")
     p.add_argument("--mridangam", metavar="HOST:PORT", nargs="?", const="127.0.0.1:57141",
                    help="a mridangam patch (host/synth/mridangam.scd) takes strokes here; without this option the rhythm tools use the click only")
+    p.add_argument("--tabla", metavar="HOST:PORT", nargs="?", const="127.0.0.1:57143",
+                   help="a tabla patch (host/synth/tabla.scd) takes strokes here: the thekas of Hindustani talas and, as a stand-in, usul")
     p.add_argument("--player", metavar="FILE", help="the player's measured hand and own fingerings "
                                                     "(default: host/tutor/state/player.json; 'none' keeps them in memory only)")
     args = p.parse_args(argv)
@@ -449,7 +476,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.mridangam:
         host, _, port = args.mridangam.rpartition(":")
         drum = Sender(host or "127.0.0.1", int(port))
-    tutor = Tutor(client, tilt_deg=args.tilt, practice=bool(args.fake), player=player, mridangam=drum)
+    tabla = None
+    if args.tabla:
+        host, _, port = args.tabla.rpartition(":")
+        tabla = Sender(host or "127.0.0.1", int(port))
+    tutor = Tutor(client, tilt_deg=args.tilt, practice=bool(args.fake), player=player, mridangam=drum, tabla=tabla)
 
     log = None
     if not args.no_log:

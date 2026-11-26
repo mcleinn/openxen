@@ -9,6 +9,7 @@ Pinned upstream sources and tool versions used by this project. Update this file
 | HE60 | https://github.com/peppapighs/HE60 | `501871e03edc54cc17a75ea4d55e129fea370f52` (tag v2.1 is the hardware release; HEAD only changes the README link) | 2026-07-05 | GPL-3.0 | Hardware base: MCU/USB/power/mux/sensor circuit, MX footprints, plate project |
 | libhmk | https://github.com/peppapighs/libhmk | `1d2b2e2101fa4509700a24152d33335ddfda8240` | 2026-10-11 | GPL-3.0 | Firmware base: AT32F405 driver, analog acquisition, calibration, raw-HID protocol |
 | hmkconf | https://github.com/peppapighs/hmkconf | `22884ba` | 2026-07-19 | (see repo) | Configurator; reference for the raw-HID command usage |
+| Keycap Playground | https://github.com/riskable/keycap_playground | `8c16a84` | 2023-02-15 | no licence file in the repository | Keycap generator; its `.scad` modules are copied into `keycaps/lekker-hex/` (changes listed in that folder's README) |
 | macrolev | https://github.com/heiso/macrolev | `5e56c0b` | 2025-08-25 | (see repo) | Lekker switch footprint (`SW_MX_Lekker_1u`) used to confirm the unit cell |
 
 Other clones (Zellia80-HE, Lucca-58HE, Plink, kicad-kbplacer, Fabrication-Toolkit, wooting-analog-sdk, void_switch_kicad) are reading references only; see `reference/SOURCES.md`.
