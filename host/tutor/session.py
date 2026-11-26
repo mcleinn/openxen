@@ -27,6 +27,8 @@ def harmony_model_xen(quality: str) -> bool:
     """A chord quality that only tunings beyond twelve notes have."""
     return bool(_CHORDS.get(quality, {}).get("xen"))
 from . import harmony as harmony_model
+from . import voiceleading as voice_leading
+from . import xen_progressions as xen_model
 from . import rhythm as rhythm_model
 from .player import Player
 from .wiki import Wiki
@@ -751,9 +753,17 @@ class Tutor:
         return steps
 
     def harmony(self, action: str = "overview", key: str = "C", chord: str | None = None, chords: list[str] | None = None,
-                limit: int = 6, voicing: str = "shell") -> dict:
-        """Which chord tends to follow which. overview | next | common | analyse | steps | tuning."""
+                limit: int = 6, voicing: str = "shell", to: str | None = None, max_cents: float | None = None, length: int = 5,
+                via: str | None = None, seed: int = 0, roots: str = "any", sizes: str = "same", name: str | None = None) -> dict:
+        """Which chord tends to follow which. overview | next | common | analyse | steps | tuning;
+        from the tuning itself: neighbours | path; from the wiki: xen."""
         action = action.strip().lower()
+        if action in ("neighbours", "neighbors"):
+            return self._harmony_neighbours(chord, to, limit, max_cents, roots, sizes)
+        if action == "path":
+            return self._harmony_path(chord, to, length, max_cents, via, seed, roots, sizes)
+        if action == "xen":
+            return self._harmony_xen(name, key)
         t = self.keyboard.tuning
         stats = self._harmony_stats()
         if not stats and action != "tuning":
@@ -774,6 +784,10 @@ class Tutor:
                 "how": "next (chord): what usually follows; common: frequent runs of three and four chords; analyse (chords): how usual each "
                        "step of a progression is; steps (chords): any progression as chord steps for demo and improvise; tuning: what this "
                        "tuning does to these progressions.",
+                "beyond_this_repertoire": "These counts know only twelve-tone chords. neighbours (chord): the chords closest to a chord in "
+                                          "this tuning by the smallest movement of the voices, including those a piano lacks; path (chord): "
+                                          "a short progression built from such moves; xen: progressions and chords microtonal musicians "
+                                          "have written down for this tuning.",
                 "other_musics": "Makam and raga have no chord progressions: what sounds right there is the path through the mode, the notes "
                                 "that are dwelt on and the characteristic phrases. See library (search makam, action raga).",
             }
@@ -869,9 +883,248 @@ class Tutor:
             facts.append(f"The fifth is {fifth} steps ({fifth * 1200 / edo - 701.955:+.1f} cents against pure), the major third {third} steps "
                          f"({third * 1200 / edo - 386.314:+.1f} cents).")
             return {"tuning": f"{edo} equal steps per octave", "what_it_does_to_progressions": facts,
-                    "note": "These follow from the tuning's arithmetic and from this project's choices; let the player hear each before taking it as given."}
+                    "small_steps": self._vl_step_names(),
+                    "note": "These follow from the tuning's arithmetic and from this project's choices; let the player hear each before taking it as given.",
+                    "harmony_of_this_tuning": "action neighbours (chord) lists the chords closest to a chord here, action path builds a "
+                                              "progression from them, action xen gives what microtonal musicians wrote for this tuning."}
 
-        raise TutorError("action must be one of: overview, next, common, analyse, steps, tuning")
+        raise TutorError("action must be one of: overview, next, common, analyse, steps, tuning, neighbours, path, xen")
+
+    # --- harmony from the tuning itself: nearest chords, progressions built from them, the wiki's progressions ---
+
+    def _vl_step_names(self) -> dict:
+        """The tuning's small distances by name: `1 step` -> `a comma (23 cents)`."""
+        t = self.keyboard.tuning
+        return {f"{n} step{'' if n == 1 else 's'}": f"{name} ({t.cents_of(n):.0f} cents)" for n, name in sorted(voice_leading.step_names(t).items())}
+
+    def _vl_chord(self, text: str | None, what: str = "chord") -> tuple[int, str, str]:
+        """ "C major", "vE minor", "17 neutral", "Dm7" -> (root as steps above C, quality, root name)."""
+        t = self.keyboard.tuning
+        parts = (text or "").strip().split(None, 1)
+        if not parts:
+            raise TutorError(f"this action needs {what}: a root and a quality (C major, vE minor, Bb harmonic7) or a symbol (Dm7)")
+        symbol = lib.chord_from_symbol(parts[0]) if len(parts) == 1 else None
+        if symbol:
+            root, quality = symbol[0], symbol[1]
+        else:
+            root, quality = parts[0], t.quality_key(parts[1] if len(parts) > 1 else "major")
+        pitch = t.parse(root)[0]
+        if not t.has(quality):
+            raise TutorError(f"this tuning has no {quality} chord of its own. Available: {', '.join(t.qualities())}.")
+        return pitch % t.edo, quality, t.pitch_class_name(root) if t.letter_of(root) else t.pitch_class_name(t.name(pitch))
+
+    def _vl_aim(self) -> int:
+        kb = self.keyboard
+        return kb.centre().pitch - kb.tuning.edo // 2
+
+    def _vl_place(self, pc: int, quality: str, root_name: str) -> Chord:
+        """A chord in root position in the octave where all of it has keys, nearest below
+        the middle of the keyboard (as the jazz changes are placed)."""
+        kb = self.keyboard
+        t = kb.tuning
+        low, high = kb.range()
+        fitting = [c for c in (t.chord(octave * t.edo + pc, quality, 0, root_name) for octave in range(low.pitch // t.edo, high.pitch // t.edo + 1))
+                   if all(p in kb._by_pitch for p in c.pitches)]
+        if not fitting:
+            raise TutorError(f"this keyboard has no place where all notes of {root_name} {quality} have keys")
+        return min(fitting, key=lambda c: abs(c.pitches[0] - self._vl_aim()))
+
+    def _vl_fit(self, pitches: list[int], stay: bool = False) -> list[int] | None:
+        """These notes moved by whole octaves to where all of them have keys: as they are if
+        possible (`stay`), else nearest below the middle of the keyboard."""
+        kb = self.keyboard
+        edo = kb.tuning.edo
+        ways = [[p + k * edo for p in pitches] for k in range(-8, 9)]
+        ways = [w for w in ways if all(p in kb._by_pitch for p in w)]
+        if not ways:
+            return None
+        return min(ways, key=lambda w: abs(w[0] - pitches[0]) if stay else abs(w[0] - self._vl_aim()))
+
+    def _vl_letters(self, pc: int, quality: str, root_name: str) -> dict[int, str]:
+        """The letter each note of a chord is written on (a third above C is some E), as
+        `Tuning.chord` spells it: note as steps above C -> letter."""
+        t = self.keyboard.tuning
+        start = "CDEFGAB".index(t.letter_of(root_name))
+        degrees = (1,) + tuple(d for _, d in CHORDS[quality]["tones"])
+        return {(pc + steps) % t.edo: "CDEFGAB"[(start + d - 1) % 7] for steps, d in zip((0,) + t.tone_steps(quality), degrees)}
+
+    def _vl_root_name(self, pc: int, quality: str, held: dict[int, str]) -> str:
+        """The spelling of a root under which the notes kept from the chord before keep
+        their names (C vE G to vA C vE, not to a chord spelled with other letters)."""
+        t = self.keyboard.tuning
+        best, best_score = None, None
+        for spelled in t.spellings(4 * t.edo + pc)[:6]:
+            name = t.pitch_class_name(spelled)
+            letters = self._vl_letters(pc, quality, name)
+            names = {note: t.pitch_class_name(t.name_with_letter(4 * t.edo + note, letter)) for note, letter in letters.items()}
+            kept = sum(1 for note, n in names.items() if held.get(note) == n)
+            score = (kept, -sum(len(n) for n in names.values()))     # then the plainest spelling of the whole chord
+            if best_score is None or score > best_score:
+                best, best_score = name, score
+        return best
+
+    def _vl_step(self, pitches: list[int], pc: int, quality: str, root_name: str) -> tuple[dict, dict[int, str]]:
+        """A chord step for demo, fingering, run_exercise and improvise, in the shape the jazz
+        changes use; and the name of each of its notes."""
+        t = self.keyboard.tuning
+        letters = self._vl_letters(pc, quality, root_name)
+        names = {p: t.name_with_letter(p, letters[p % t.edo]) for p in pitches}
+        root = min(p for p in pitches if p % t.edo == pc)
+        step = {"notes": [t.label(p, names[p]) for p in sorted(pitches)], "label": f"{t.pitch_class_name(names[root])} {quality}",
+                "root": t.label(root, names[root]), "beats": 4}
+        return step, {p % t.edo: t.pitch_class_name(n) for p, n in names.items()}
+
+    def _vl_follow(self, n, pitches: list[int], held: dict[int, str], root_name: str, to_name: str | None = None) -> tuple[dict, list[int], str, dict[int, str]]:
+        """One move as a chord step with what happens in it. The voicing follows the voices,
+        so notes that stay are the same keys; if that leaves the keyboard, the chord moves by
+        octaves or is set in root position. Returns the step, its pitches, root name, note names."""
+        kb = self.keyboard
+        t = kb.tuning
+        edo = t.edo
+        name = to_name or (root_name if n.root_steps == 0 else self._vl_root_name(n.root, n.quality, held))
+        carried = voice_leading.voiced(pitches, n.moves, edo)
+        placed = self._vl_fit(carried, stay=True) if max(carried) - min(carried) < 2 * edo else None
+        if placed is None:
+            placed = list(self._vl_place(n.root, n.quality, name).pitches)
+        step, names = self._vl_step(placed, n.root, n.quality, name)
+        moves = []
+        for mv in n.moves:
+            if not mv.steps:
+                continue
+            origin = next(p for p in sorted(pitches) if p % edo == mv.source)
+            target = min((p for p in placed if p % edo == mv.target), key=lambda p: abs(p - origin - mv.steps))
+            moves.append(f"{t.label(origin, t.name_with_letter(origin, t.letter_of(held[mv.source])))} to "
+                         f"{t.label(target, t.name_with_letter(target, t.letter_of(names[mv.target])))}: {voice_leading.step_words(t, mv.steps)}")
+        entry = {**step, "kind": n.kind, "stays": n.stays, "moves": moves, "total_cents": round(n.cents)}
+        if n.also:
+            entry["same_notes_as"] = [f"{t.pitch_class_name(t.name(4 * edo + r))} {q}" for r, q in n.also]
+        if CHORDS[n.quality].get("xen"):
+            entry["not_on_a_piano"] = CHORDS[n.quality]["sounds"]
+        return entry, placed, name, names
+
+    def _vl_limits(self, max_cents: float | None, roots: str, sizes: str) -> float:
+        if roots not in voice_leading.ROOTS:
+            raise TutorError(f"roots must be one of: {', '.join(voice_leading.ROOTS)}")
+        if sizes not in voice_leading.SIZES:
+            raise TutorError(f"sizes must be one of: {', '.join(voice_leading.SIZES)}")
+        reach = voice_leading.DEFAULT_MAX_CENTS if max_cents is None else float(max_cents)
+        if not 10 <= reach <= 1200:
+            raise TutorError("max_cents (how far all voices together may move in one step) must be 10 to 1200")
+        return reach
+
+    def _harmony_neighbours(self, chord: str | None, to: str | None, limit: int, max_cents: float | None, roots: str, sizes: str) -> dict:
+        """The chords closest to a chord in this tuning, or one given move described."""
+        t = self.keyboard.tuning
+        reach = self._vl_limits(max_cents, roots, sizes)
+        pc, quality, root_name = self._vl_chord(chord)
+        home = self._vl_place(pc, quality, root_name)
+        here, held = self._vl_step(list(home.pitches), pc, quality, root_name)
+        out: dict = {"from": here, "tuning": f"{t.edo} equal steps per octave"}
+        if to:
+            to_pc, to_quality, to_name = self._vl_chord(to, "to")
+            out["move"] = self._vl_follow(voice_leading.move(t, pc, quality, to_pc, to_quality), list(home.pitches), held, root_name, to_name)[0]
+        else:
+            found = voice_leading.neighbours(t, pc, quality, limit=max(1, min(int(limit), 16)), max_cents=reach, roots=roots, sizes=sizes)
+            out["neighbours"] = [self._vl_follow(n, list(home.pitches), held, root_name)[0] for n in found]
+            out["ranking"] = (f"Within {reach:.0f} cents of total movement. The kinds of move take turns (another quality on the same root; "
+                              "one voice moves; the whole chord slides; the rest), nearest first within each kind; diminished and augmented "
+                              "chords come later. roots same/other, sizes triads/sevenths/any, max_cents and limit change the selection.")
+            if not found:
+                out["note"] = "No chord within this distance; raise max_cents."
+        out["small_steps"] = self._vl_step_names()
+        out["how"] = ("Each entry is a chord step: pass [from, entry] to demo to hear the move with the held notes on the same keys, or to "
+                      "fingering and run_exercise. Found by measuring how far the voices move, not from any repertoire: let the player "
+                      "hear a move and say what it does before you name it.")
+        return out
+
+    def _harmony_path(self, chord: str | None, to: str | None, length: int, max_cents: float | None, via: str | None, seed: int,
+                      roots: str, sizes: str) -> dict:
+        """A short progression in which every step is a small move of the voices."""
+        t = self.keyboard.tuning
+        reach = self._vl_limits(max_cents, roots, sizes)
+        pc, quality, root_name = self._vl_chord(chord)
+        end = self._vl_chord(to, "to") if to else None
+        wanted = None
+        if via:
+            wanted = "xen" if via.strip().lower() in ("xen", "new", "beyond", "not on a piano") else t.quality_key(via)
+        moves = voice_leading.path(t, pc, quality, length=int(length), end=(end[0], end[1]) if end else None, max_cents=reach,
+                                   via=wanted, seed=int(seed), roots=roots, sizes=sizes)
+        home = self._vl_place(pc, quality, root_name)
+        here, held = self._vl_step(list(home.pitches), pc, quality, root_name)
+        steps, pitches, name = [here], list(home.pitches), root_name
+        for i, n in enumerate(moves):
+            last = i == len(moves) - 1
+            entry, pitches, name, held = self._vl_follow(n, pitches, held, name, (end[2] if end else root_name) if last else None)
+            steps.append(entry)
+        return {"progression": " - ".join(s["label"] for s in steps), "steps": steps, "tuning": f"{t.edo} equal steps per octave",
+                "limits": f"{len(steps)} chords, no chord twice, at most {reach:.0f} cents of total movement per step"
+                          + (f", passing {'a chord a piano does not have' if wanted == 'xen' else 'a ' + wanted + ' chord'}" if wanted else "")
+                          + f"; seed {int(seed)} (another seed gives another way)",
+                "small_steps": self._vl_step_names(),
+                "note": "Pass steps to demo, fingering, run_exercise, or to improvise as changes. The voicing follows the voices, so the "
+                        "last chord may come back in another inversion than the first. Built from distances alone: whether it is music "
+                        "is for the player's ear."}
+
+    def _harmony_xen(self, name: str | None, key: str) -> dict:
+        """Progressions and chord vocabularies from the Xenharmonic Wiki for the current
+        tuning: the list, or one entry as chord steps on the home note `key`."""
+        kb = self.keyboard
+        t = kb.tuning
+        edo = t.edo
+        source = ("Collected from the Xenharmonic Wiki (en.xen.wiki, CC BY-NC-SA): the chords are the authors', the summaries the "
+                  "tutor's. tuning_notes with the page and section named gives the original text.")
+        if not name:
+            listed = []
+            for e in xen_model.for_tuning(edo):
+                item = {"name": e["id"], "title": e["name"], "kind": e["kind"]}
+                if e["chords"]:
+                    item["chords"] = " - ".join(c.split("|")[0].strip() for c in e["chords"])
+                if edo not in e["tunings"]:
+                    item["written_for"] = f"{' and '.join(str(n) for n in e['tunings'])} notes per octave; carried over by its pure intervals"
+                listed.append(item)
+            return {"tuning": f"{edo} equal steps per octave", "entries": listed, "source": source,
+                    "not_found_in_the_wiki_copy": list(xen_model.MISSING),
+                    "note": "action xen with name gives one entry: what it shows, its source, and its chords as steps on the home note "
+                            "`key`. A vocabulary is a set of chords to compare, not a progression."
+                            if listed else "The wiki copy has nothing written for this tuning; action neighbours and action path work in every tuning."}
+        try:
+            e = xen_model.entry(name)
+            chords = xen_model.resolve(e, edo)
+        except xen_model.ProgressionError as err:
+            raise TutorError(f"{err}. action xen without name lists the entries for this tuning.") from None
+        tonic_name = self._harmony_key(key)[0]
+        tonic = t.parse(tonic_name)[0] % edo
+        steps, missing = [], []
+        for label, root, tones in chords:
+            pc = (tonic + root) % edo
+            placed = self._vl_fit([4 * edo + pc] + [4 * edo + pc + s for s in tones])
+            if placed is None:
+                missing.append(label)
+                continue
+            quality = next((q for q in t.qualities() if t.tone_steps(q) == tones), None)
+            if quality:
+                root_name = tonic_name if root == 0 else self._vl_root_name(pc, quality, {})
+                step = self._vl_step(placed, pc, quality, root_name)[0]
+                step["tutor_calls_it"] = step["label"]
+            else:
+                step = {"notes": [t.label(p) for p in placed], "root": t.label(placed[0]), "beats": 4}
+            step["label"] = label
+            steps.append(step)
+        out = {"name": e["id"], "title": e["name"], "kind": e["kind"], "shows": e["shows"],
+               "source": f"Xenharmonic Wiki (CC BY-NC-SA), page '{e['source'][0]}', section '{e['source'][1]}': the chords are the "
+                         "author's, the summary is the tutor's; tuning_notes gives the original text"}
+        if edo not in e["tunings"]:
+            out["written_for"] = (f"{' and '.join(str(n) for n in e['tunings'])} notes per octave. Carried over here by the pure intervals "
+                                  "its chords stand for; that step is the tutor's, not the author's.")
+        if steps:
+            out["home_note"] = t.label(tonic, tonic_name)
+            out["steps"] = steps
+            out["note"] = ("Pass steps to demo, fingering or run_exercise" + ("; play them in order." if e["kind"] == "progression" else
+                           "; these are chords to compare, in no fixed order." if e["kind"] == "vocabulary" else
+                           "; the chords only illustrate the idea."))
+        if missing:
+            out["no_keys_for"] = missing
+        return out
 
     # --- tuning notes: the community's wiki ---
 

@@ -95,7 +95,12 @@ def test_no_internals_in_any_result(tutor, fake):
         text(call(tutor, "listen", {"max_seconds": 1, "stop_after_silence": 0.2})),
         text(call(tutor, "run_exercise", {"steps": [{"note": "C4"}], "timeout_s": 1})),
         text(call(tutor, "stop")),
+        text(call(tutor, "harmony", {"action": "neighbours", "chord": "C harmonic7", "limit": 4})),
+        text(call(tutor, "harmony", {"action": "path", "chord": "C major", "via": "xen", "max_cents": 150, "seed": 1})),
+        text(call(tutor, "harmony", {"action": "xen"})),
+        text(call(tutor, "harmony", {"action": "xen", "name": "orwell-functions", "key": "D"})),
     ]
+    assert json.loads(outputs[-4])["neighbours"][0]["label"] == "C dominant7" and len(json.loads(outputs[-3])["steps"]) == 5
     for out in outputs:
         assert not INTERNALS.search(out), f"{INTERNALS.search(out).group(0)!r} in: {out[:200]}"
         assert '"pitch"' not in out and '"x"' not in out

@@ -118,9 +118,30 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
 
     @server.tool()
     def harmony(action: str = "overview", key: str = "C", chord: str | None = None, chords: list[str] | None = None,
-                limit: int = 6, voicing: str = "shell") -> str:
-        """Which chord tends to follow which, counted over the chord changes of about 1,100
-        jazz standards, in the current tuning. `key`: C, Eb, "G minor". action "overview";
+                limit: int = 6, voicing: str = "shell", to: str | None = None, max_cents: float | None = None, length: int = 5,
+                via: str | None = None, seed: int = 0, roots: str = "any", sizes: str = "same", name: str | None = None) -> str:
+        """Which chord can follow which. Two sources: the tuning itself, and the habits of
+        one repertoire.
+
+        From the tuning (works for every chord the tuning has, also those no piano has;
+        `chord` is a root and a quality, "C major", "vE neutral", "Bb harmonic7"):
+        "neighbours" with `chord`: the chords closest to it by the smallest movement of the
+        voices: which notes stay, which move and how far (in steps of this tuning, with the
+        step's name: a comma, a diesis, a chromatic semitone), how the root moves, and what
+        kind of move it is. `max_cents` (default 240): how far all voices together may
+        move; `roots` any | same | other; `sizes` same | triads | sevenths | any; `limit`.
+        With `to` (a second chord): that one move described. "path" with `chord`: a
+        progression of `length` chords (default 5) made of such moves, back to the start or
+        to `to`, no chord twice, each step within `max_cents`; `via` a quality that must
+        occur, or "xen" for any chord a piano does not have; `seed` for another way.
+        "xen": progressions and chord vocabularies microtonal musicians have written for
+        this tuning (Xenharmonic Wiki); with `name` one of them as chord steps on the home
+        note `key`. Every neighbour and every step of a path or xen entry is a chord step
+        for demo, fingering, run_exercise and improvise. These are the actions for harmony
+        that does not exist on a piano: let the player hear a move before you name it.
+
+        From the repertoire (about 1,100 jazz standards, twelve-tone chords spelled for the
+        current tuning). `key`: C, Eb, "G minor". action "overview";
         "next" with `chord` (a symbol such as Dm7, or a degree such as IIm7): what usually
         follows and precedes it, with its role, how the root moves and how many notes are
         shared; "common": frequent runs of three and four chords; "analyse" with `chords`:
@@ -129,7 +150,7 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         what this tuning does to progressions (the comma, sevenths, chords that do not
         close). The counts describe one repertoire, not a law: say "usually", and never
         call an unusual step wrong. Makam and raga have no chord progressions."""
-        return guard(tutor.harmony, action, key, chord, chords, limit, voicing)
+        return guard(tutor.harmony, action, key, chord, chords, limit, voicing, to, max_cents, length, via, seed, roots, sizes, name)
 
     @server.tool()
     def tuning_notes(query: str | None = None, page: str | None = None, section: str | None = None, part: int = 1, limit: int = 6) -> str:
