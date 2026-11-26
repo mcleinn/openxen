@@ -331,9 +331,10 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         the order they are struck. It returns at once and keeps sounding under demos,
         exercises and the player's own playing until action "stop" (the stop tool ends it
         too). `octave` -1 moves it an octave down, out of the way of the hands; `loudness`
-        1 to 127. "status": what is sounding. The notes are held notes of the keyboard's
-        own sound, not a tanpura's tone; the result names the rule behind the tuning and
-        where the sources disagree: say so."""
+        1 to 127. "status": what is sounding. It sounds on a tanpura of its own, apart
+        from the keyboard's instrument (the result's `sound` says "keyboard" if none is
+        set up and held keyboard notes are used instead); the result names the rule
+        behind the tuning and where the sources disagree: say so."""
         return guard(tutor.drone, action, raga, root, notes, pace_s, octave, loudness)
 
     @server.tool()
@@ -451,6 +452,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-log", action="store_true", help="keep no record of tool calls")
     p.add_argument("--mridangam", metavar="HOST:PORT", nargs="?", const="127.0.0.1:57141",
                    help="a mridangam patch (host/synth/mridangam.scd) takes strokes here; without this option the rhythm tools use the click only")
+    p.add_argument("--tanpura", metavar="HOST:PORT", nargs="?", const="127.0.0.1:57145",
+                   help="a tanpura patch (host/synth/tanpura.scd) sounds the drone here, apart from the keyboard's instrument; "
+                        "without this option the drone is held notes of the keyboard's own sound")
     p.add_argument("--tabla", metavar="HOST:PORT", nargs="?", const="127.0.0.1:57143",
                    help="a tabla patch (host/synth/tabla.scd) takes strokes here: the thekas of Hindustani talas and, as a stand-in, usul")
     p.add_argument("--player", metavar="FILE", help="the player's measured hand and own fingerings "
@@ -480,7 +484,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.tabla:
         host, _, port = args.tabla.rpartition(":")
         tabla = Sender(host or "127.0.0.1", int(port))
-    tutor = Tutor(client, tilt_deg=args.tilt, practice=bool(args.fake), player=player, mridangam=drum, tabla=tabla)
+    tanpura = None
+    if args.tanpura:
+        host, _, port = args.tanpura.rpartition(":")
+        tanpura = Sender(host or "127.0.0.1", int(port))
+    tutor = Tutor(client, tilt_deg=args.tilt, practice=bool(args.fake), player=player, mridangam=drum, tabla=tabla, tanpura=tanpura)
 
     log = None
     if not args.no_log:

@@ -417,12 +417,21 @@ or `strokes`; without it a tala is tapped on every beat, a lesson and an usul on
 has Pa, Ma-Sa-Sa-Sa when Pa is absent and the plain Ma present, otherwise Dha, Ni or Ga (the
 sources disagree: Courtney prefers Dha, Toss Levy gives Ni, raganet Ga; Dha is used and the
 result says so). A raga can override the rule (`"drone"` in `RAGAS`: Bageshri takes Ma although
-it has Pa, as Toss Levy and raganet list it). `library raga` reports it under `tanpura`. The
-drone itself is four held notes of the keyboard's own sound, struck in the tanpura's order
-(first string, Sa, Sa, low Sa) every `pace_s` seconds by a background thread until `drone stop`
-or `stop`; it holds no lock, so demos, exercises and rhythm takes run over it. It is not a
-tanpura's tone: a synth for that exists for another keyboard
-(`xentool/supercollider/mpe_tanpura_xentool.scd`) and can replace the held notes later.
+it has Pa, as Toss Levy and raganet list it). `library raga` reports it under `tanpura`.
+
+The drone sounds on an instrument of its own, `host/synth/tanpura.scd`: a SuperCollider instance
+with its own sound server (port 57144; OSC on 57145: `/tanpura/start <seconds per string>
+<loudness 0..1> <Hz> ...`, `/tanpura/stop`, `/tanpura/gain`, `/tanpura/ping`), apart from the
+piano patch that xentool plays. The tutor sends the strings as frequencies of the current tuning
+and the patch strikes them in the tanpura's order (first string, Sa, Sa, low Sa) every `pace_s`
+seconds until `drone stop` or `stop`. Nothing goes through the keyboard's notes, so no key the
+player presses can cut a string, and the strings need not exist as keys. The tone is a model
+(a plucked string with a buzzing bridge, the idea of `xentool/supercollider/mpe_tanpura_xentool.scd`),
+not a recording. Start the tutor with `--tanpura` (`play.ps1 -Tanpura` starts both). Without it
+the drone falls back to held notes of the keyboard's own sound, struck by a background thread;
+there a drone key the player presses is cut until its next strike, and the result says so
+(`sound: "keyboard"`). Either way it holds no lock, so demos, exercises and rhythm takes run
+over it.
 
 The click is a note on MIDI channel 10 (General MIDI percussion, notes 76 and 77), sent through
 xentool's `POST /api/midi`. The SuperCollider patch plays that channel as a short tick; a drum

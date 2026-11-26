@@ -134,7 +134,7 @@ PRACTICE_NOTE = (
 class Tutor:
     def __init__(self, client, tilt_deg: float = 0.0, practice: bool = False, player: Player | None = None,
                  library: lib.Library | None = None, wiki: Wiki | None = None, mridangam: Sender | None = None,
-                 tabla: Sender | None = None):
+                 tabla: Sender | None = None, tanpura: Sender | None = None):
         self.client = client
         self.wiki = wiki or Wiki()
         self.music = library or lib.Library()
@@ -146,6 +146,7 @@ class Tutor:
         self._click_by_midi = True              # until xentool turns out not to know /api/midi
         self.mridangam = mridangam              # OSC sender to the mridangam patch, or None if there is none
         self.tabla = tabla                      # the same for the tabla patch
+        self.tanpura = tanpura                  # the drone's own instrument (host/synth/tanpura.scd), if one is set up
         self._drone: tuple[threading.Thread, threading.Event, dict] | None = None    # a sounding drone: thread, its stop, what it plays
         self._keyboard: Keyboard | None = None
         self._kb_lock = threading.Lock()
@@ -2583,6 +2584,10 @@ class Tutor:
         drone, self._drone = self._drone, None
         if not drone:
             return False
+        if drone[0] is None:            # sounding on the tanpura patch, which strikes the strings itself
+            if self.tanpura is not None:
+                self.tanpura.send("/tanpura/stop")
+            return True
         drone[1].set()
         if drone[0] is not threading.current_thread():
             drone[0].join(timeout=2.0)
@@ -2608,13 +2613,15 @@ class Tutor:
 
     def drone(self, action: str = "status", raga: str | None = None, root: str | None = None, notes: list[str] | None = None,
               pace_s: float = 1.0, octave: int = 0, loudness: int = 50) -> dict:
-        """A drone under the playing: start | stop | status. It sounds through the
-        keyboard's own sound and runs beside every other tool."""
+        """A drone under the playing: start | stop | status. It runs beside every other
+        tool. Where a tanpura patch is set up it sounds there, apart from the keyboard's
+        instrument, so no key the player presses can cut a string; only without one it
+        falls back to held notes of the keyboard's own sound."""
         action = action.strip().lower()
         if action == "stop":
             return {"drone": "stopped" if self._drone_end() else "none was sounding"}
         if action == "status":
-            alive = self._drone if self._drone and self._drone[0].is_alive() else None
+            alive = self._drone if self._drone and (self._drone[0] is None or self._drone[0].is_alive()) else None
             return {"drone": "sounding", **alive[2]} if alive else {"drone": "silent", "how": "drone action start with raga (and root = where Sa lies), or with notes"}
         if action != "start":
             raise TutorError("action must be one of: start, stop, status")
@@ -2640,6 +2647,17 @@ class Tutor:
             else:
                 pitches = [sa_pitch - t.edo + t.steps_for(3 / 2), sa_pitch, sa_pitch, sa_pitch - t.edo]
                 told.update(tuning="Pa-Sa-Sa-Sa", rule="the usual tuning (no raga was named): the fifth below Sa, Sa twice, the low Sa")
+        if self.tanpura is not None:
+            # its own instrument: any pitch of the tuning, whether the keyboard has a key for it or not
+            pitches = [p + int(octave) * t.edo for p in pitches]
+            self._drone_end()
+            told = {"strings": [t.label(p) for p in pitches], **told, "sound": "tanpura",
+                    "pace": f"one string every {pace_s:g} s, round and round, until drone action stop (stop ends it too)"}
+            self.tanpura.send("/tanpura/start", float(pace_s), max(1, min(int(loudness), 127)) / 127.0, *[float(t.hz(p)) for p in pitches])
+            self._drone = (None, None, told)
+            return {"drone": "sounding", **told,
+                    "note": "A tanpura of its own, apart from the keyboard's sound: the player can play any key over it. "
+                            "Lower loudness if it covers the playing."}
         keys, moved, missing = [], [], []
         for pitch in pitches:
             pitch += int(octave) * t.edo
@@ -2664,7 +2682,9 @@ class Tutor:
         self._drone = (thread, stop, told)
         thread.start()
         return {"drone": "sounding", **told,
-                "note": "Held notes of the keyboard's own sound, not a tanpura's buzzing tone. Everything else works over it; lower loudness if it covers the playing."}
+                "sound": "keyboard",
+                "note": "No tanpura is set up on this machine, so these are held notes of the keyboard's own sound: a key of the drone that the "
+                        "player presses is cut until its next strike. Tell the player; octave -1 keeps it out of the way."}
 
     # --- improvising ---
 

@@ -25,13 +25,15 @@ user environment variable; it is read from there if this shell does not have it 
 instance) and let the tutor's rhythm tools use it.
 -Tabla: the same for the tabla sample player (host\synth\tabla.scd, a SuperCollider instance of its
 own; its kit is prepared once with python host\synth\tabla_kit.py).
--Mridangam and -Tabla start the tutor too (as -Tutor) if none of the tutor switches is given.
+-Tanpura: the same for the drone (host\synth\tanpura.scd, a SuperCollider instance of its own, so
+that the drone is apart from the keyboard's instrument).
+-Mridangam, -Tabla and -Tanpura start the tutor too (as -Tutor) if none of the tutor switches is given.
 -Tilt: how the keyfield lies in front of the player: 0 = key rows level (a single module square
 on the desk), 'lumatone' = the assembled case (16.1 degrees).
 #>
 param([int]$Edo = 53, [switch]$Wooting, [switch]$Stop,
       [ValidateSet('supercollider', 'amsynth')][string]$Synth = 'supercollider',
-      [switch]$Tutor, [switch]$TutorLan, [switch]$TutorTailscale, [string]$Tilt = '0', [switch]$Mridangam, [switch]$Tabla)
+      [switch]$Tutor, [switch]$TutorLan, [switch]$TutorTailscale, [string]$Tilt = '0', [switch]$Mridangam, [switch]$Tabla, [switch]$Tanpura)
 
 $Repo     = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $Xentool  = 'C:\Dev-Free\xentool\target\release\xentool.exe'
@@ -81,7 +83,7 @@ if ($Synth -eq 'amsynth') {
     }
 }
 $TutorNet = $TutorLan -or $TutorTailscale
-if (($Mridangam -or $Tabla) -and -not $TutorNet) { $Tutor = $true }     # the drums are played by the tutor
+if (($Mridangam -or $Tabla -or $Tanpura) -and -not $TutorNet) { $Tutor = $true }     # the drums are played by the tutor
 $TutorHost = $null
 if ($Tutor -or $TutorNet) {
     if ($TutorNet -and -not $env:OPENXEN_TUTOR_TOKEN) {
@@ -103,6 +105,12 @@ if ($Tutor -or $TutorNet) {
         $Running = Get-CimInstance Win32_Process -Filter "Name='sclang.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'mridangam' }
         if (-not $Running) { Start-Process -FilePath $Sclang -ArgumentList "`"$Patch`"" -WorkingDirectory (Split-Path $Sclang) -WindowStyle Minimized }
         $TutorArgs += '--mridangam'
+    }
+    if ($Tanpura) {
+        $Patch = Join-Path $Repo 'host\synth\tanpura.scd'
+        $Running = Get-CimInstance Win32_Process -Filter "Name='sclang.exe'" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -match 'tanpura\.scd' }
+        if (-not $Running) { Start-Process -FilePath $Sclang -ArgumentList "`"$Patch`"" -WorkingDirectory (Split-Path $Sclang) -WindowStyle Minimized }
+        $TutorArgs += '--tanpura'
     }
     if ($Tabla) {
         $Patch = Join-Path $Repo 'host\synth\tabla.scd'

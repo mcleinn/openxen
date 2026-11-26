@@ -310,6 +310,28 @@ def test_the_drone_for_a_raga():
             tutor.drone("start", raga="Nope")
     finally:
         tutor.stop()
+
+
+def test_the_drone_has_its_own_instrument_where_one_is_set_up():
+    fake = FakeXentool(sample_setup(31, (0, 1, 2, 3)))
+    tanpura = Sender("127.0.0.1", 9)
+    tutor = Tutor(fake, tanpura=tanpura)
+    try:
+        out = tutor.drone("start", raga="Bhupali", root="C4", pace_s=1.5, loudness=64)
+        assert out["sound"] == "tanpura" and out["strings"] == ["G3 (18)", "C4 (0)", "C4 (0)", "C3 (0)"]
+        address, pace, loud, *hz = tanpura.sent[-1]
+        assert address == "/tanpura/start" and pace == 1.5 and loud == pytest.approx(64 / 127)
+        c4 = 16.351597831287414 * 16
+        assert hz == pytest.approx([c4 * 2 ** (18 / 31) / 2, c4, c4, c4 / 2])
+        # nothing goes through the keyboard's own sound, so no key the player presses can cut a string
+        assert fake.sounded == [] and tutor.drone("status")["drone"] == "sounding"
+        # notes the keyboard has no key for are fine: the drone does not need keys
+        low = tutor.drone("start", notes=["C4", "G4"], octave=-4)
+        assert low["strings"] == ["C0 (0)", "G0 (18)"] and tanpura.sent[-1][0] == "/tanpura/start"
+        assert tutor.stop() == {"stopped": True} and tanpura.sent[-1] == ("/tanpura/stop",)
+        assert tutor.drone("status")["drone"] == "silent" and tutor.drone("stop") == {"drone": "none was sounding"}
+    finally:
+        tutor.stop()
         tutor.pump.stop()
 
 

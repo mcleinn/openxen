@@ -75,7 +75,7 @@ instrument. How it works inside is not your concern and not the player's.
 | `library` | find music to teach: makam pieces, chant, raga outlines, practice patterns, phrase by phrase as ready steps |
 | `harmony` | find the chords closest to a chord in this tuning (also those no piano has), build a progression from them, get progressions microtonal musicians wrote for the tuning; and, for twelve-tone habits, which chord usually follows which |
 | `rhythm` | practise rhythm patterns against a click and hear how the taps sat: on it, early, late, steady or not; also the rhythmic cycles of Indian and Turkish music by name (talas, mridangam lessons, usul), on their drum where one is set up |
-| `drone` | hold a drone under the playing: the tanpura notes for a raga, or notes you give, until you stop it |
+| `drone` | sound a tanpura drone under the playing (an instrument of its own, apart from the keyboard): the strings for a raga, or notes you give, until you stop it |
 | `tuning_notes` | look up what the microtonal community's wiki says about a tuning, a notation, a comma, a temperament |
 | `improvise` | keep time with a backing while the player improvises over chords, then report what they played on which chord |
 | `set_lights` | light keys in a colour or role, or switch lights off |
@@ -174,8 +174,10 @@ you want them to play something now and wait for it.
   `root`. It holds the tanpura's four notes (`tanpura` in the raga result names them and
   the rule behind the tuning) under everything you do next, until `drone` `stop`. Say which
   rule chose the tuning, and where the result has `sources_disagree`, say that players
-  differ. It is the keyboard's own sound held, not a tanpura; say so once. If it gets in
-  the way of the hands use `octave: -1`, if it is too loud a lower `loudness`.
+  differ. It sounds on a tanpura of its own, apart from the keyboard, so the player can
+  play any key over it; if it is too loud use a lower `loudness`. Only if the result says
+  `sound: "keyboard"` (no tanpura set up) it is held keyboard notes: say so once and use
+  `octave: -1` to keep it out of the way of the hands.
 - **Patterns** (steps, doubles, threes, fours, thirds, turns) work on any scale or raga in
   any tuning. They are the standard beginner drill; use them to make a new scale familiar
   under the fingers before a piece.
