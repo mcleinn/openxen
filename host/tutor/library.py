@@ -207,8 +207,44 @@ RAGAS: dict[str, dict] = {
         "notes": {"R": "10/9", "g": "32/27", "M": "4/3", "P": "3/2", "D": "5/3", "n": "16/9"},
         "up": "S g M D n S'", "down": "S' n D M g R S", "phrase": "D. n. S M, g M D, M g R S",
         "strong": ("M", "S"), "taught": "Ma is the centre; Pa appears only in passing",
+        "drone": "M", "drone_why": "Ma-Sa-Sa-Sa although the raga has Pa: Ma is its centre (Toss Levy and raganet list Bageshri under this tuning)",
     },
 }
+
+# The drone of a raga: the tanpura's four strings, struck in this order: the first string
+# (below middle Sa), middle Sa, middle Sa, low Sa. Only the first string changes with the raga.
+# From the research in reference/music/rhythm/tala.json, `tanpura_tunings` (Courtney,
+# chandrakantha.com "drones"; Wikipedia "Tanpura"; Toss Levy after Harish Bakshi; raganet,
+# Batish). A raga's own "drone" (with "drone_why") overrides the rule where the sources list
+# the raga under another tuning.
+DRONE_NAMES = {"P": "Pa", "M": "Ma", "D": "Dha", "N": "Ni", "G": "Ga"}
+DRONE_PA = "the usual tuning: the raga has Pa (Courtney: 'If Pa is present, one should give preference to it')"
+DRONE_MA = "Pa is absent and the plain Ma is present (Courtney, Wikipedia, Toss Levy)"
+DRONE_OPEN = ("Pa is absent and Ma is raised: the first string takes Dha, Ni or Ga; never the raised Ma. Courtney: 'Dha is usually "
+              "preferred'; Toss Levy gives Ni for such ragas; raganet suggests Ga")
+
+
+def drone_tuning(raga: dict) -> dict:
+    """Which note the tanpura's first string takes for this raga, and by which rule:
+    {"first": swara or None, "tuning": "Pa-Sa-Sa-Sa", "rule": ..., "sources_disagree": ...}."""
+    notes = raga["notes"]
+    out: dict = {}
+    if raga.get("drone"):
+        first, out["rule"] = raga["drone"], raga.get("drone_why", "given for this raga")
+    elif "P" in notes:
+        first, out["rule"] = "P", DRONE_PA
+    elif "M" in notes:
+        first, out["rule"] = "M", DRONE_MA
+    else:
+        first = next((s for s in ("D", "N", "G") if s in notes), None)
+        out["rule"] = DRONE_OPEN if first else "no rule of the sources fits (no Pa, no plain Ma, Dha, Ni or Ga): Sa alone, this project's choice"
+        if first:
+            others = [DRONE_NAMES[s] for s in ("D", "N", "G") if s in notes and s != first]
+            out["sources_disagree"] = f"{DRONE_NAMES[first]} is used here, following Courtney's order of preference" + \
+                (f"; {' or '.join(others)} is given by other sources" if others else "")
+    out["first"] = first
+    out["tuning"] = f"{DRONE_NAMES[first]}-Sa-Sa-Sa" if first else "Sa-Sa-Sa-Sa"
+    return out
 
 SWARA_NAMES = {"S": "Sa", "r": "komal Re", "R": "Re", "g": "komal Ga", "G": "Ga", "M": "Ma", "M#": "tivra Ma", "P": "Pa",
                "d": "komal Dha", "D": "Dha", "n": "komal Ni", "N": "Ni"}

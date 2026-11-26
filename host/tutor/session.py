@@ -27,6 +27,7 @@ def harmony_model_xen(quality: str) -> bool:
     """A chord quality that only tunings beyond twelve notes have."""
     return bool(_CHORDS.get(quality, {}).get("xen"))
 from . import harmony as harmony_model
+from . import percussion
 from . import rhythm as rhythm_model
 from .osc import Sender
 from .player import Player
@@ -130,7 +131,8 @@ PRACTICE_NOTE = (
 
 class Tutor:
     def __init__(self, client, tilt_deg: float = 0.0, practice: bool = False, player: Player | None = None,
-                 library: lib.Library | None = None, wiki: Wiki | None = None, mridangam: Sender | None = None):
+                 library: lib.Library | None = None, wiki: Wiki | None = None, mridangam: Sender | None = None,
+                 tabla: Sender | None = None):
         self.client = client
         self.wiki = wiki or Wiki()
         self.music = library or lib.Library()
@@ -141,6 +143,8 @@ class Tutor:
         self.hand_model = self.player.hand()    # an average hand until the player's is measured
         self._click_by_midi = True              # until xentool turns out not to know /api/midi
         self.mridangam = mridangam              # OSC sender to the mridangam patch, or None if there is none
+        self.tabla = tabla                      # the same for the tabla patch
+        self._drone: tuple[threading.Thread, threading.Event, dict] | None = None    # a sounding drone: thread, its stop, what it plays
         self._keyboard: Keyboard | None = None
         self._kb_lock = threading.Lock()
         self._activity = threading.Lock()   # one demo / listen / exercise at a time
@@ -162,6 +166,8 @@ class Tutor:
     def _forget_keyboard(self) -> None:
         with self._kb_lock:
             self._keyboard = None
+        if self._drone:                 # its keys belong to the keyboard that is gone
+            self._drone[1].set()
 
     @property
     def keyboard(self) -> Keyboard:
@@ -1658,6 +1664,7 @@ class Tutor:
                                        "disagree on some positions. Say so; do not present these as the one true pitches."),
                         "patterns": "action pattern with name = this raga and scale = one of: " + ", ".join(lib.PATTERNS),
                     }
+                    out["tanpura"] = self._tanpura_words(data, sa_pitch)
                     if data.get("also"):
                         out["also"] = data["also"]
                     if data.get("disputed"):
@@ -1854,6 +1861,7 @@ class Tutor:
     def stop(self) -> dict:
         """End whatever is running and switch the tutor's lights off."""
         self._cancel.set()
+        self._drone_end()
         try:
             self.client.notes(off=[addr for addr, _ in self.lights.lit.values()])
         except XentoolError:
@@ -1932,18 +1940,29 @@ class Tutor:
 
     # --- rhythm ---
 
-    def _sound_of(self, sound: str) -> str:
+    def _drums(self) -> dict[str, Sender]:
+        return {name: sender for name, sender in (("mridangam", self.mridangam), ("tabla", self.tabla)) if sender is not None}
+
+    def _sound_of(self, sound: str, tradition: str | None = None) -> str:
+        """What sounds: click, mridangam or tabla. "auto" = the drum of the pattern's
+        tradition if it is set up, else the click."""
         sound = (sound or "click").strip().lower()
-        if sound not in ("click", "mridangam"):
-            raise TutorError("sound must be click or mridangam")
+        if sound not in ("click", "mridangam", "tabla", "auto"):
+            raise TutorError("sound must be click, mridangam, tabla or auto")
+        if sound == "auto":
+            return percussion.drum_for(tradition, set(self._drums()))
         if sound == "mridangam" and self.mridangam is None:
             raise TutorError("no mridangam is set up on this machine (start host/synth/mridangam.scd and the tutor with --mridangam); use sound click")
+        if sound == "tabla" and self.tabla is None:
+            raise TutorError("no tabla is set up on this machine (start host/synth/tabla.scd and the tutor with --tabla); use sound click")
         return sound
 
     def _beat(self, accent: bool = False, sound: str = "click", stroke: str | None = None) -> None:
-        """One beat of the pulse: a click, or a mridangam stroke (a deep one on the accent)."""
+        """One beat of the pulse: a click, or a drum stroke (a deep one on the accent)."""
         if sound == "mridangam" and self.mridangam is not None:
             self.mridangam.send("/mridangam/stroke", stroke or ("Thom" if accent else "Thi"), 0.9 if accent else 0.55)
+        elif sound == "tabla" and self.tabla is not None:
+            self.tabla.send("/tabla/stroke", stroke or percussion.PULSE["tabla"][0 if accent else 1], 0.9 if accent else 0.55)
         else:
             self._click(accent)
 
@@ -1961,10 +1980,13 @@ class Tutor:
         self.client.notes(on=[((key.board, key.key), 115 if accent else 75, 50)])
 
     def _clicked_take(self, clicks: list[tuple[float, bool]], end: float, progress: Progress | None, label: str,
-                      sound: str = "click", extra: list[tuple[float, str, float]] | None = None) -> tuple[list[float], list[float]]:
+                      sound: str = "click", extra: list[tuple[float, str, float]] | None = None,
+                      strike: Callable[[str | None, float], None] | None = None, silent_from: int | None = None) -> tuple[list[float], list[float]]:
         """Sound the clicks at their times (seconds from now, accent) and collect the taps
         until `end`. Returns the click times and the tap times, both on the same clock."""
-        # `extra`: mridangam strokes at their own times (seconds, name, loudness), merged into the schedule
+        # `extra`: drum strokes at their own times (seconds, name, loudness), merged into the schedule and
+        # sounded by `strike` (without it: on the mridangam). `silent_from`: the clicks from this one on
+        # are only timed, not sounded (the drum's strokes are the pulse then).
         events = sorted([(at, "beat", accent) for at, accent in clicks] + [(at, name, loud) for at, name, loud in (extra or [])],
                         key=lambda e: e[0])
         self._begin()
@@ -1973,6 +1995,7 @@ class Tutor:
         try:
             if self.pump.error:
                 raise TutorError(self.pump.error)
+            self.keyboard                   # built now if it was not yet: that takes a second, which must not fall into the count-in
             zero = time.monotonic() + 0.3
             sounded = []
             for n, (at, what, accent) in enumerate(events):
@@ -1985,10 +2008,13 @@ class Tutor:
                 if self._cancel.is_set():
                     raise TutorError("stopped")
                 if what == "beat":
-                    self._beat(bool(accent), sound)
+                    if silent_from is None or len(sounded) < silent_from:
+                        self._beat(bool(accent), sound)
                     sounded.append(zero + at)
                     if progress and (accent or len(clicks) <= 24):
                         progress(len(sounded), len(clicks), label)
+                elif strike is not None:
+                    strike(what, accent)
                 elif self.mridangam is not None:
                     self.mridangam.send("/mridangam/stroke", what, accent)
             while True:
@@ -2005,15 +2031,23 @@ class Tutor:
 
     def rhythm(self, action: str = "patterns", pattern: str | None = None, tempo_bpm: float = 90, cycles: int = 2,
                level: str = "beginner", onsets: list[int] | None = None, pulses: int | None = None, beats: int | None = None,
-               sound: str = "click", progress: Progress | None = None) -> dict:
-        """Rhythm practice with a click or a mridangam. patterns | calibrate | demo | play | status | reset."""
+               sound: str = "auto", tap: str | None = None, variant: int | None = None, progress: Progress | None = None) -> dict:
+        """Rhythm practice with a click or a drum. patterns | calibrate | demo | play | status | reset."""
         action = action.strip().lower()
         if action == "patterns":
-            sounds = ["click"] + (["mridangam (recorded strokes; also for demo, which plays the pattern itself)"] if self.mridangam else [])
-            return {"sounds": sounds, "patterns": {name: {"what": p["what"], "taps_per_cycle": len(p["onsets"]), "clicks_per_cycle": p["beats"]}
-                                 for name, p in rhythm_model.PATTERNS.items()},
-                    "own": "or give your own: onsets (which of the equal parts get a tap, counted from 0), pulses (how many parts), beats (clicks per cycle)",
-                    "how": "rhythm action play with pattern, tempo_bpm, cycles and level; calibrate once before the first take."}
+            if pattern:
+                return self._cycle_detail(pattern)
+            sounds = ["click"] + (["mridangam (recorded strokes; also for demo, which plays the pattern itself)"] if self.mridangam else []) \
+                + (["tabla (recorded strokes: the theka of a Hindustani tala)"] if self.tabla else [])
+            out = {"sounds": sounds, "patterns": {name: {"what": p["what"], "taps_per_cycle": len(p["onsets"]), "clicks_per_cycle": p["beats"]}
+                                                  for name, p in rhythm_model.PATTERNS.items() if name not in rhythm_model.LIBRARY},
+                   "own": "or give your own: onsets (which of the equal parts get a tap, counted from 0), pulses (how many parts), beats (clicks per cycle)",
+                   "how": "rhythm action play with pattern, tempo_bpm, cycles and level; calibrate once before the first take."}
+            if rhythm_model.LIBRARY:
+                out["cycles"] = self._cycle_lists()
+                out["how"] += (" A cycle: action patterns with pattern = its name tells its sections, claps, strokes and how well it is sourced; "
+                               "sound auto plays it on its own drum where one is set up; tap = beats, claps or strokes says what the player taps.")
+            return out
         if action == "status":
             ms = self.player.offset_ms
             return {"calibrated": ms is not None, **({"offset_ms": round(ms)} if ms is not None else {}),
@@ -2027,6 +2061,7 @@ class Tutor:
         if not 40 <= tempo_bpm <= 200:
             raise TutorError("tempo_bpm must be between 40 and 200")
         self._need_player("rhythm")
+        given_sound = sound
         sound = self._sound_of(sound)
         beat_s = 60.0 / tempo_bpm
         if action == "calibrate":
@@ -2050,10 +2085,22 @@ class Tutor:
             chosen = {"pulses": int(pulses), "beats": int(beats), "onsets": sorted(set(onsets)), "what": "the player's own pattern"}
             name = "own pattern"
         else:
-            name = (pattern or "").strip().lower().replace(" ", "_").replace("-", "_")
-            if name not in rhythm_model.PATTERNS:
-                raise TutorError(f"no pattern '{pattern}'. Available: {', '.join(rhythm_model.PATTERNS)}; or give onsets, pulses and beats.")
-            chosen = rhythm_model.PATTERNS[name]
+            found = rhythm_model.find(pattern or "")
+            if not found:
+                near = rhythm_model.close_names(pattern or "") or ([] if rhythm_model.LIBRARY else list(rhythm_model.PATTERNS))
+                raise TutorError(f"no pattern '{pattern}'. " + (f"Close: {', '.join(near)}. " if near else "") +
+                                 "rhythm action patterns lists them; or give onsets, pulses and beats.")
+            name, chosen = found
+        try:
+            if variant:
+                chosen = rhythm_model.variant_of(chosen, int(variant))
+            tapped = {**chosen, "onsets": rhythm_model.tap_onsets(chosen, (tap or "").strip().lower() or None)}
+        except ValueError as e:
+            raise TutorError(f"{name}: {e}") from None
+        if not tapped["onsets"]:
+            raise TutorError(f"{name} has nothing to tap with tap = {tap}; use beats")
+        tradition = chosen.get("tradition")
+        sound = self._sound_of(given_sound, tradition)
         cycles = max(1, min(int(cycles), 16))
         per_cycle = chosen["beats"]
         lead = 4 if per_cycle % 4 == 0 or per_cycle > 8 else per_cycle       # the count-in
@@ -2063,27 +2110,59 @@ class Tutor:
         accents = set(chosen.get("accents", [0]))
         clicks = [(i * beat_s, i == 0) for i in range(lead)] + \
                  [((lead + c * per_cycle + b) * beat_s, b in accents) for c in range(cycles) for b in range(per_cycle)]
+        pulse = per_cycle * beat_s / chosen["pulses"]
+        end = total_beats * beat_s + beat_s / 2
+        # the cycle's own strokes (a theka's bols, a lesson's strokes, an usul's dum and tek) on the drum that has them
+        own = sound != "click" and bool(chosen.get("strokes")) and percussion.plays_own_strokes(sound, tradition)
+        closing = chosen.get("ending")              # a lesson's last stroke, on the first beat after the last round
+        own_strokes = [((lead + c * per_cycle) * beat_s + s["at"] * pulse, s["stroke"], s.get("loud", 0.7)) for c in range(cycles) for s in chosen.get("strokes", [])] \
+            + ([(total_beats * beat_s, closing["stroke"], closing.get("loud", 0.9))] if closing else [])
+
+        def strike(stroke: str | None, loud: float) -> None:
+            sent = percussion.stroke_on(sound, tradition, stroke) if own else stroke
+            if sent is None:                # a stroke the sources do not name
+                self._click(False)
+            else:
+                self._drums()[sound].send(percussion.ADDRESS[sound], sent, loud)
+
+        notes = self._cycle_notes(chosen, sound, own) if tradition else {}
         if action == "demo":
-            # the pattern itself, played for the player to hear: on the mridangam the taps as strokes over a soft pulse
-            pulse = per_cycle * beat_s / chosen["pulses"]
-            strokes = [((lead + c * per_cycle) * beat_s + o * pulse, "Thom" if o == 0 else "Ta" if (o * per_cycle) % chosen["pulses"] else "Thi", 0.95 if o == 0 else 0.75)
-                       for c in range(cycles) for o in chosen["onsets"]]
-            if sound == "mridangam":
-                self._clicked_take([(t, a) for t, a in clicks[:lead]], total_beats * beat_s + beat_s / 2, progress, name, "click", strokes)
+            # the pattern itself, played for the player to hear
+            if own:
+                self._clicked_take(clicks[:lead], end, progress, name, "click", own_strokes, strike)
+            elif sound != "click":
+                # a drum without strokes for this pattern: its taps as strokes, the first of a cycle (and a tala's claps) deep
+                first, on_beat, between = percussion.GENERIC[sound]
+                deep = (accents if tradition else set()) | {0}
+                strokes = [((lead + c * per_cycle) * beat_s + o * pulse, first if o in deep else between if (o * per_cycle) % chosen["pulses"] else on_beat,
+                            0.95 if o == 0 else 0.75) for c in range(cycles) for o in chosen["onsets"]]
+                self._clicked_take(clicks[:lead], end, progress, name, "click", strokes, strike)
+            elif tradition:
+                # clicks only: every stroke of the cycle (or every beat), the claps accented
+                at = sorted({s["at"] for s in chosen.get("strokes", [])}) or chosen["onsets"]
+                self._clicked_take(clicks[:lead] + [((lead + c * per_cycle) * beat_s + o * pulse, o in accents or o == 0) for c in range(cycles) for o in at]
+                                   + ([(total_beats * beat_s, True)] if closing else []), end, progress, name)
             else:
                 # with clicks only: the pattern as accented clicks, no separate pulse after the count-in
-                self._clicked_take(clicks[:lead] + [(t, True) for t, _, _ in strokes], total_beats * beat_s + beat_s / 2, progress, name)
-            return {"demonstrated": name, "what": chosen["what"], "tempo_bpm": tempo_bpm, "cycles": cycles, "sound": sound,
+                self._clicked_take(clicks[:lead] + [((lead + c * per_cycle) * beat_s + o * pulse, True) for c in range(cycles) for o in chosen["onsets"]],
+                                   end, progress, name)
+            return {"demonstrated": name, "what": chosen["what"], "tempo_bpm": tempo_bpm, "cycles": cycles, "sound": sound, **notes,
                     "note": "Now let the player try it: rhythm action play with the same pattern and tempo."}
-        sounded, taps = self._clicked_take(clicks, total_beats * beat_s + beat_s / 2, progress, name, sound)
+        if own:
+            # the count-in as clicks, then the drum's strokes are the pulse
+            sounded, taps = self._clicked_take(clicks, end, progress, name, "click", own_strokes, strike, silent_from=lead)
+        else:
+            sounded, taps = self._clicked_take(clicks, end, progress, name, sound)
         start = sounded[lead] if len(sounded) > lead else sounded[0] + lead * beat_s
-        due = rhythm_model.targets(chosen, cycles, start, beat_s)
+        due = rhythm_model.targets(tapped, cycles, start, beat_s)
         offset = (self.player.offset_ms or 0.0) / 1000
         judged = rhythm_model.grade(due, [t for t in taps if t > start - beat_s / 2], offset, level)
         errors = judged.pop("errors_ms")
-        per = len(chosen["onsets"])
+        per = len(tapped["onsets"])
         worst = sorted(((abs(e) if e is not None else 9999, i) for i, e in enumerate(errors)), reverse=True)[:3]
-        out = {"pattern": name, "what": chosen["what"], "tempo_bpm": tempo_bpm, "cycles": cycles, "level": level, **judged,
+        out = {"pattern": name, "what": chosen["what"], "tempo_bpm": tempo_bpm, "cycles": cycles, "level": level,
+               **({"sound": sound, "tapped": tap or ("the strokes" if chosen.get("kind") in ("usul", "lesson") else "every beat"), **notes} if tradition else {}),
+               **judged,
                "weakest": [f"cycle {i // per + 1}, tap {i % per + 1}: " + ("missed" if errors[i] is None else f"{errors[i]:+d} ms") for _, i in worst
                            if errors[i] is None or abs(errors[i]) > rhythm_model.BANDS[level][0]],
                "bands_ms": dict(zip(rhythm_model.GRADES, rhythm_model.BANDS[level]))}
@@ -2092,6 +2171,247 @@ class Tutor:
         out["what_now"] = ("Say how it went in plain words: together with the click or not, early or late, steady or not, and the one tap "
                            "to watch. Negative numbers are early. Then repeat, slower if more than a few were missed.")
         return out
+
+    # --- cycles of the rhythm library (talas with their theka, mridangam lessons, usul) ---
+
+    CYCLE_KINDS = {"theka": "hindustani_talas", "tala": "carnatic_talas", "lesson": "mridangam_lessons", "usul": "usul"}
+
+    def _cycle_lists(self) -> dict:
+        """Every cycle of the library by kind and by how well it is sourced: name and length."""
+        out: dict[str, dict] = {}
+        for key, cycle in rhythm_model.LIBRARY.items():
+            group = out.setdefault(self.CYCLE_KINDS.get(cycle.get("kind"), "other"), {"count": 0})
+            group["count"] += 1
+            group.setdefault(cycle.get("confidence", "?"), []).append(f"{key} {cycle['beats']}")
+        for group in out.values():
+            for confidence, names in group.items():
+                if isinstance(names, list):
+                    group[confidence] = ", ".join(names)
+        out["read"] = ("name and beats per cycle, under how well the sources agree. Hindustani talas carry their theka (the tabla's syllables), "
+                       "Carnatic talas their hand gestures, usul (the cycles of Turkish makam music) their dum and tek.")
+        return out
+
+    @staticmethod
+    def _strokes_line(strokes: list[dict], start: float, length: float, unit: bool) -> str:
+        """The strokes of a section as they are said: one word per beat, "-" a silent
+        beat, several syllables in one beat run together (`unit`); else stroke(length)."""
+        inside = [s for s in strokes if start <= s["at"] < start + length]
+        if not unit:
+            return " ".join((s.get("say") or s["stroke"] or "?") + (f"({s['dur']:g})" if s.get("dur", 1) != 1 else "") for s in inside)
+        words = []
+        for beat in range(int(start), int(start + length)):
+            here = [s for s in inside if beat <= s["at"] < beat + 1]
+            if not here:
+                words.append("-")
+                continue
+            parts = round(1 / min(s.get("dur", 1) for s in here))
+            slots = ["-"] * max(parts, 1)
+            for s in here:
+                slots[min(int(round((s["at"] - beat) * parts)), len(slots) - 1)] = s.get("say") or s["stroke"] or "?"
+            words.append("".join(slots))
+        return " ".join(words)
+
+    def _cycle_notes(self, cycle: dict, sound: str, own: bool) -> dict:
+        """What to tell with a cycle: how well it is sourced, and what the sound stands for."""
+        out = {"tradition": cycle["tradition"], "confidence": cycle.get("confidence", "")}
+        if cycle.get("variant"):
+            out["variant"] = cycle["variant"]
+        if cycle.get("conflict"):
+            out["sources_disagree"] = cycle["conflict"]
+        if cycle.get("unnamed_strokes"):
+            out["unnamed_strokes"] = cycle["unnamed_strokes"] + "; they sound as a plain click"
+        tradition = cycle["tradition"]
+        if own and tradition == "makam":
+            table = percussion.USUL_ON_TABLA if sound == "tabla" else percussion.USUL_ON_MRIDANGAM
+            out["sound_note"] = percussion.USUL_NOTE.format(drum="the " + sound, dum=table["dum"], tek=table["tek"])
+        elif own and tradition == "hindustani":
+            table = rhythm_model.INFO.get("tabla_bols", {})
+            bols = list(dict.fromkeys(s["stroke"] for s in cycle["strokes"] if s["stroke"]))
+            made = [table[b]["note"] for b in bols if b in table and table[b]["how"] != "recorded" and table[b].get("note")]
+            silent = [b for b in bols if b not in table]
+            if made or silent:
+                out["sound_note"] = "; ".join(made + ([f"no sound for {', '.join(silent)}"] if silent else []))
+        elif sound != "click" and not own:
+            out["sound_note"] = (f"no strokes are given for this cycle on the {sound}: the first beat and the claps sound deep, the other beats light "
+                                 "(this project's choice, not a traditional accompaniment)")
+        elif sound == "click" and percussion.DRUMS.get(tradition):
+            out["sound_note"] = f"played as clicks: no {' or '.join(percussion.DRUMS[tradition])} is set up on this machine"
+        return out
+
+    def _cycle_detail(self, name: str) -> dict:
+        found = rhythm_model.find(name)
+        if not found:
+            near = rhythm_model.close_names(name)
+            raise TutorError(f"no pattern '{name}'. " + (f"Close: {', '.join(near)}. " if near else "") + "rhythm action patterns lists them.")
+        key, cycle = found
+        out: dict = {"pattern": key, "what": cycle["what"]}
+        tradition = cycle.get("tradition")
+        if not tradition:
+            out.update(taps_per_cycle=len(cycle["onsets"]), clicks_per_cycle=cycle["beats"])
+            return out
+        kind = cycle.get("kind")
+        unit = kind != "usul"
+        word = {"theka": "matras", "usul": "pulses"}.get(kind, "beats")
+
+        def sections(c: dict) -> list[str]:
+            lines = []
+            for s in c.get("sections", []):
+                first, last = s["at"] + 1, s["at"] + s["length"]
+                line = f"{word} {first}-{last}" if last > first else f"{word[:-1]} {first}"
+                if s.get("gesture"):
+                    line += f", {s['gesture']} ({s['name']})"
+                elif s.get("name") not in (None, "group", "round"):
+                    line += f" ({s['name']})"
+                if s.get("gestures"):
+                    line += ": " + ", ".join(g or "no gesture" for g in s["gestures"])
+                said = self._strokes_line(c.get("strokes", []), s["at"], s["length"], unit)
+                lines.append(line + (": " + said if said.strip("- ") else ""))
+            return lines
+
+        out.update(name=cycle["name"], tradition=tradition, **{word: cycle["beats"]})
+        if cycle.get("aliases"):
+            out["also_called"] = cycle["aliases"]
+        out["sections"] = sections(cycle)
+        if cycle.get("ending"):
+            out["ends_on"] = f"{cycle['ending']['say']}, on the first beat after the last round"
+        out["confidence"] = cycle.get("confidence", "")
+        if cycle.get("conflict"):
+            out["sources_disagree"] = cycle["conflict"]
+        elif cycle.get("agreement"):
+            out["sources_say"] = cycle["agreement"]
+        if cycle.get("unnamed_strokes"):
+            out["unnamed_strokes"] = cycle["unnamed_strokes"]
+        variants, n = [], 0
+        for v in cycle.get("variants", []):
+            entry = {"name": v["name"]}
+            if v.get("strokes"):
+                n += 1
+                whole = {**cycle, **{k: x for k, x in v.items() if k not in ("name", "source", "note")}}
+                entry.update(variant=n, sections=sections(whole))
+            elif v.get("gestures"):
+                entry["gestures"] = ", ".join(g or "no gesture" for g in v["gestures"])
+            if v.get("note"):
+                entry["note"] = v["note"]
+            if v.get("source"):
+                entry["source"] = v["source"]
+            variants.append(entry)
+        if variants:
+            out["variants"] = variants
+        drum = percussion.drum_for(tradition, set(self._drums()))
+        own = drum != "click" and bool(cycle.get("strokes")) and percussion.plays_own_strokes(drum, tradition)
+        out["sound"] = {"auto": drum, **{k: v for k, v in self._cycle_notes(cycle, drum, own).items() if k in ("sound_note", "unnamed_strokes")}}
+        out["sources"] = cycle.get("sources", [])
+        out["how"] = ("rhythm action demo with this pattern lets the player hear it; action play judges their taps: tap = beats (every "
+                      f"{word[:-1]}), claps (only the claps" + (" = the starts of the groups" if kind == "usul" else "") + ") or strokes"
+                      + ("; variant = the number of a variant" if n else "") + ". tempo_bpm counts the " + word + ".")
+        return out
+
+    # --- drone ---
+
+    def _tanpura(self, raga: dict, sa_pitch: int) -> tuple[list[int], dict]:
+        """The four strings of the drone for a raga, in the order they are struck, as
+        pitches around this Sa; and the rule that chose the tuning."""
+        t = self.keyboard.tuning
+        rule = lib.drone_tuning(raga)
+        steps_of = lib.swara_steps(raga, t.edo)
+        first = [sa_pitch - t.edo + steps_of[rule["first"]][0]] if rule["first"] else [sa_pitch - t.edo]
+        return first + [sa_pitch, sa_pitch, sa_pitch - t.edo], rule
+
+    def _tanpura_words(self, raga: dict, sa_pitch: int) -> dict:
+        t = self.keyboard.tuning
+        pitches, rule = self._tanpura(raga, sa_pitch)
+        out = {"tuning": rule["tuning"], "strings": [t.label(p) for p in pitches], "rule": rule["rule"]}
+        if rule.get("sources_disagree"):
+            out["sources_disagree"] = rule["sources_disagree"]
+        out["sound_it"] = "drone action start with raga and root holds these notes, struck in this order round and round, until drone action stop"
+        return out
+
+    def _drone_end(self) -> bool:
+        drone, self._drone = self._drone, None
+        if not drone:
+            return False
+        drone[1].set()
+        if drone[0] is not threading.current_thread():
+            drone[0].join(timeout=2.0)
+        return True
+
+    def _drone_run(self, keys: list[Key], pace_s: float, loudness: int, stop: threading.Event) -> None:
+        """Strike the strings one after the other, each ringing on until its next turn."""
+        hold_ms = int(pace_s * len(keys) * 1150)
+        try:
+            while not stop.is_set():
+                for key in keys:
+                    try:
+                        self.client.notes(on=[((key.board, key.key), loudness, hold_ms)])
+                    except Exception:           # a keyboard that is away for a moment must not end the drone
+                        pass
+                    if stop.wait(pace_s):
+                        break
+        finally:
+            try:
+                self.client.notes(off=list(dict.fromkeys((k.board, k.key) for k in keys)))
+            except Exception:
+                pass
+
+    def drone(self, action: str = "status", raga: str | None = None, root: str | None = None, notes: list[str] | None = None,
+              pace_s: float = 1.0, octave: int = 0, loudness: int = 50) -> dict:
+        """A drone under the playing: start | stop | status. It sounds through the
+        keyboard's own sound and runs beside every other tool."""
+        action = action.strip().lower()
+        if action == "stop":
+            return {"drone": "stopped" if self._drone_end() else "none was sounding"}
+        if action == "status":
+            alive = self._drone if self._drone and self._drone[0].is_alive() else None
+            return {"drone": "sounding", **alive[2]} if alive else {"drone": "silent", "how": "drone action start with raga (and root = where Sa lies), or with notes"}
+        if action != "start":
+            raise TutorError("action must be one of: start, stop, status")
+        self._need_player("drone")
+        if not 0.3 <= pace_s <= 5:
+            raise TutorError("pace_s (seconds from one string to the next) must be between 0.3 and 5")
+        kb = self.keyboard
+        t = kb.tuning
+        told: dict = {}
+        if notes:
+            pitches = [self._pitch(n)[0] for n in notes]
+            told["rule"] = "the notes that were given, in this order"
+        else:
+            sa_pitch, _ = self._pitch(root or "C")
+            if raga:
+                found = lib.find_raga(raga)
+                if not found:
+                    raise TutorError(f"no raga '{raga}' in the library. Available: {', '.join(lib.raga_names())}. Or give notes.")
+                pitches, rule = self._tanpura(found[1], sa_pitch)
+                told.update(raga=found[0], tuning=rule["tuning"], rule=rule["rule"])
+                if rule.get("sources_disagree"):
+                    told["sources_disagree"] = rule["sources_disagree"]
+            else:
+                pitches = [sa_pitch - t.edo + t.steps_for(3 / 2), sa_pitch, sa_pitch, sa_pitch - t.edo]
+                told.update(tuning="Pa-Sa-Sa-Sa", rule="the usual tuning (no raga was named): the fifth below Sa, Sa twice, the low Sa")
+        keys, moved, missing = [], [], []
+        for pitch in pitches:
+            pitch += int(octave) * t.edo
+            at = next((p for p in (pitch, pitch + t.edo, pitch - t.edo) if kb.keys_for_pitch(p)), None)
+            if at is None:
+                missing.append(t.label(pitch))
+                continue
+            if at != pitch:
+                moved.append(f"{t.label(pitch)} sounds as {t.label(at)}")
+            keys.append(kb.keys_for_pitch(at)[0])
+        if not keys:
+            raise TutorError(f"this keyboard has none of the drone's notes ({', '.join(missing)}); give another root or octave")
+        self._drone_end()
+        stop = threading.Event()
+        told = {"strings": [t.label(k.pitch) for k in keys], **told,
+                "pace": f"one string every {pace_s:g} s, round and round, until drone action stop (stop ends it too)"}
+        if moved:
+            told["moved_an_octave"] = moved
+        if missing:
+            told["not_on_this_keyboard"] = missing
+        thread = threading.Thread(target=self._drone_run, args=(keys, float(pace_s), max(1, min(int(loudness), 127)), stop), name="tutor-drone", daemon=True)
+        self._drone = (thread, stop, told)
+        thread.start()
+        return {"drone": "sounding", **told,
+                "note": "Held notes of the keyboard's own sound, not a tanpura's buzzing tone. Everything else works over it; lower loudness if it covers the playing."}
 
     # --- improvising ---
 
