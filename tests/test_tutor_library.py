@@ -837,9 +837,12 @@ def test_what_of_a_piece_fits_the_keyboard_and_what_the_print_marks(tmp_path):
         assert "grace" in bar["steps"][0] and "trill begins here" in bar["steps"][1]["trill"] and "5 short notes" in bar["steps"][1]["trill"]
         assert len(bar["not_on_this_keyboard"]) == 1 and "left out" in bar["not_on_this_keyboard_note"]
         t.demo(bar["steps"][:3], tempo_bpm=240, beats_per_step=1)          # the steps are playable: nothing without a key is in them
-        # any interval counts as transposing: a keyboard a few steps too high still takes the right hand complete
-        shift, covered = t._fit_shift([p + 3 for p in sorted(t.keyboard._by_pitch)[-20:]])
-        assert (shift, covered) == (-3, 20) and "steps down" in t._shift_words(shift) and t._shift_words(62) == "2 octaves up"
+        # transposing the whole piece makes notes above the keyboard playable; a whole octave is preferred where it serves as well
+        top = sorted(t.keyboard._by_pitch)[-20:]
+        assert t._fit_shift([p + 3 for p in top]) == (-31, 20) and t._fit_shift(top) == (0, 20)
+        # ... but any interval counts where no octave fits everything
+        assert t._fit_shift([p + 3 for p in top], have=set(top) | {min(top) - 3 + i for i in range(3)}) == (-3, 20)
+        assert "steps down" in t._shift_words(-3) and t._shift_words(62) == "2 octaves up"
     finally:
         t.stop()
         t.pump.stop()
