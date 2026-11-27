@@ -374,8 +374,11 @@ class Tuning:
         place where music written for one tuning is carried to another."""
         if other.edo == self.edo:
             return pitch, 0.0
-        step = other._tuning.pitch(pitch).retune(self._tuning).pitch_index
-        return step, round(step * 1200.0 / self.edo - pitch * 1200.0 / other.edo, 1)
+        memo = self.__dict__.setdefault("_retuned", {})         # xenharmlib's retune takes about 20 ms; a piece asks thousands of times
+        if (other.edo, pitch) not in memo:
+            step = other._tuning.pitch(pitch).retune(self._tuning).pitch_index
+            memo[(other.edo, pitch)] = (step, round(step * 1200.0 / self.edo - pitch * 1200.0 / other.edo, 1))
+        return memo[(other.edo, pitch)]
 
     def chord(self, root: int, quality: str, inversion: int = 0, root_name: str | None = None) -> Chord:
         """A chord on `root` in close position; `inversion` 0 = root in the bass."""

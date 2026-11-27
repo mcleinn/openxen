@@ -664,3 +664,46 @@ def test_prelude_spelled_as_the_composer_spells_its_scale():
     xml = mx.to_musicxml(mx.prelude_score(prelude, updown=True, scale=scale))
     assert "<accidental>three-quarters-sharp</accidental>" in xml and "<accidental>quarter-flat</accidental>" in xml
     assert "<alter>1.5</alter>" in xml and "<alter>-0.5</alter>" in xml and "natural-down" not in xml
+
+
+# ---- expression marks on the sheet for one instrument
+
+def test_expression_marks_are_written_as_musicxml_directions_and_notations():
+    marks = [{"type": "dynamic", "onset": 0.0, "hand": "both", "value": "pp", "text": "pp"},
+             {"type": "pedal", "onset": 0.0, "end": 4.0, "hand": "left", "value": "down", "text": "Ped."},
+             {"type": "crescendo", "onset": 1.0, "end": 4.0, "hand": "right", "hairpin": True},
+             {"type": "articulation", "onset": 1.0, "piano": 1, "staff": "both", "value": "accent"},
+             {"type": "articulation", "onset": 1.0, "piano": 2, "staff": "both", "value": "accent"},
+             {"type": "dynamic", "onset": 4.0, "hand": "right", "value": "mezzo", "text": "mezzo"},
+             {"type": "dynamic", "onset": 4.0, "hand": "left", "value": "f", "text": "più f"},
+             {"type": "tempo", "onset": 4.0, "hand": "both", "value": "ritardando", "text": "Poco rit."},
+             {"type": "diminuendo", "onset": 4.5, "end": 7.0, "hand": "both", "text": "diminuendo poco a poco"},
+             {"type": "expression", "onset": 5.0, "hand": "both", "value": "simile", "text": "simile"},
+             {"type": "fermata", "onset": 4.0, "hand": "both"},
+             {"type": "slur", "onset": 0.0, "end": 1.0, "hand": "right"}]
+    xml = mx.to_musicxml(mx.prelude_score(prelude(marks=marks), updown=True))
+    root = ET.fromstring(xml)
+    one, two = root.find("part").findall("measure")
+
+    def kinds(measure):
+        return [(t[0].tag, t[0].get("type") or (t[0][0].tag if len(t[0]) else t[0].text), d.get("placement"), d.findtext("staff"))
+                for d in measure.findall("direction") for t in d.findall("direction-type") if t[0].tag != "metronome"]
+
+    first = kinds(one)
+    assert ("dynamics", "pp", "below", "1") in first and ("pedal", "start", "below", "2") in first
+    assert ("wedge", "crescendo", "below", "1") in first
+    # a span that ends on a barline is closed in the bar before it, at its end
+    assert ("wedge", "stop", "below", "1") in first and ("pedal", "stop", "below", "2") not in first
+    second = kinds(two)
+    assert ("pedal", "stop", "below", "2") in second and ("dynamics", "other-dynamics", "below", "1") in second
+    assert ("words", "più f", "below", "2") in second and ("words", "Poco rit.", "above", "1") in second
+    assert ("words", "diminuendo poco a poco", "below", "1") in second and ("dashes", "start", "below", "1") in second
+    assert ("dashes", "stop", "below", "1") in second and ("words", "simile", "below", "1") in second
+    assert two.find("direction/direction-type/dynamics/other-dynamics").text == "mezzo"
+    # the accent stands on the note at that moment, once although both pianos have it; the fermata on the notes of the second bar
+    accents = [n for n in one.iter("note") if n.find("notations/articulations/accent") is not None]
+    assert len(accents) == 1 and accents[0].findtext("pitch/step") == "C" and accents[0].find("pitch/alter") is not None
+    assert [n.findtext("pitch/octave") for n in two.iter("note") if n.find("notations/fermata") is not None] == ["5"]
+    assert "<slur" not in xml                                           # slurs are not written
+    # the four-staff proofreading sheet stays without the marks
+    assert "<dynamics>" not in mx.to_musicxml(mx.prelude_score(prelude(marks=marks)))

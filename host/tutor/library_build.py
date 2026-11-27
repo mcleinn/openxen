@@ -481,13 +481,19 @@ def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
     data = json.loads(path.read_text(encoding="utf-8"))
     bars = []
     for bar in data.get("bars", []):
-        staves, variants = {}, []
+        staves, variants, marks = {}, [], []
         for staff, events in (bar.get("staves") or {}).items():
             kept = []
             for e in events:
                 steps = [n["step"] for n in e.get("notes", []) if isinstance(n.get("step"), int)]
                 if steps and not e.get("rest") and float(e.get("dur", 0)) > 0:
                     kept.append([round(float(e["beat"]) - 1.0, 4), round(float(e["dur"]), 4), sorted(set(steps))])
+                    # the marks these files hold on a note (expression.py): fermata, staccato
+                    hand = "left" if staff == "lower" else "right"
+                    if e.get("fermata"):
+                        marks.append({"type": "fermata", "beat": kept[-1][0], "hand": hand})
+                    if e.get("staccato"):
+                        marks.append({"type": "articulation", "beat": kept[-1][0], "hand": hand, "value": "staccato"})
                     for n in e["notes"]:
                         for other in n.get("also") or []:
                             variants.append({"staff": staff, "beat": round(float(e["beat"]) - 1.0, 4), "step": n["step"],
@@ -498,6 +504,8 @@ def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
                      "length": round(4.0 * float(num) / float(den or 4), 4), "staves": staves})
         if variants:
             bars[-1]["variants"] = variants
+        if marks:
+            bars[-1]["expression"] = [m for k, m in enumerate(marks) if m not in marks[:k]]
     if not bars:
         return None
     tuning = data["tuning"]["edo"] if isinstance(data["tuning"], dict) else data["tuning"]      # either the number or {"edo": ...}
@@ -507,8 +515,51 @@ def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
         "tuning": int(tuning), "source": how, "licence": "private use", "notes": [], "theory": {}, "phrases": [],
         "score": bars, "bars": len(bars),
         "tempi": [[int(m["bar"]), float(m["bpm"])] for m in data.get("tempo") or [] if m.get("bar") and m.get("bpm")],
+        **expression_summary(bars, "the score file (fermatas and staccato dots only: it holds no dynamics, tempo words or pedal)"),
         **({"checked": checked(c["grade"], c["how"], c["listen"], c["doubtful"])} if (c := SCORE_CHECKS.get(slug)) else {}),
     }
+
+
+def expression_summary(bars: list, read_from: str) -> dict:
+    """The piece's `expression` entry: how many marks of each kind its bars carry (expression.py)."""
+    kinds: dict[str, int] = {}
+    for bar in bars:
+        for mark in bar.get("expression", []):
+            kinds[mark["type"]] = kinds.get(mark["type"], 0) + 1
+    return {"expression": {"kinds": kinds, "from": read_from}} if kinds else {}
+
+
+def carry_marks(marks: list, bars: dict, starts: dict[int, float], lengths: dict[int, float], renumbered: dict[int, int]) -> None:
+    """Expression marks of a transcription (`{"type", "onset", "end"?, "hand" | "staff", "value"?, "text"?,
+    "hairpin"?}`, times in quarter notes from the start) into the bars they start in, as `expression`
+    (expression.py): `beat` from the barline, `to` = [bar, beat] of the end of a span in the new numbering
+    (the bar after the last one = the end of the piece). A mark standing at a barline that is no bar
+    goes to the bar that begins there. `hand` is the mark's own (the two-staff edition) or follows the
+    staff it was read at in the two-piano print: upper -> right, lower -> left, between the staves -> both;
+    the same mark read at both pianos is kept once."""
+    kept = sorted(renumbered)
+    total = starts[kept[-1]] + lengths[kept[-1]]
+
+    def bar_at(t: float) -> int:
+        return max((n for n in kept if starts[n] <= t + 1e-6), default=kept[0])
+
+    for mark in sorted(marks, key=lambda m: float(m["onset"])):
+        onset = float(mark["onset"])
+        if onset >= total - 1e-6:
+            continue
+        n = bar_at(onset)
+        entry = {"type": mark["type"], "beat": round(max(0.0, onset - starts[n]), 4),
+                 "hand": mark.get("hand") or {"upper": "right", "lower": "left"}.get(mark.get("staff"), "both")}
+        for key in ("value", "text", "hairpin"):
+            if mark.get(key):
+                entry[key] = mark[key]
+        if mark.get("end") is not None:
+            end = float(mark["end"])
+            last = bar_at(end)
+            entry["to"] = [len(kept) + 1, 0.0] if end >= total - 1e-6 else [renumbered[last], round(end - starts[last], 4)]
+        here = bars[n].setdefault("expression", [])
+        if entry not in here:
+            here.append(entry)
 
 
 def scores(source: Path):
@@ -584,6 +635,7 @@ def wyschnegradsky(path: Path):
             if not bar["variants"]:
                 del bar["variants"]
             out.append(bar)
+        carry_marks(prelude.get("marks") or [], bars, starts, lengths, renumbered)
         number = int(prelude["number"])
         grade = "well checked" if number in PRELUDES_WELL else "unverified" if number in PRELUDES_UNVERIFIED else "partly checked"
         doubtful = PRELUDES_DOUBTFUL.get(number, []) + [u["bar"] for u in prelude.get("uncertain") or [] if isinstance(u.get("bar"), int)]
@@ -605,11 +657,18 @@ def wyschnegradsky(path: Path):
                                 "its inner notes out. In pedal_bars a hand has to let go of held notes (or use a sustain pedal).")
         # the tempo (quarter notes per minute) at the start of each bar where it changes; a change inside a bar counts for its bar
         tempi: list[list] = []
+        later: dict[int, float] = {}
         for mark in sorted((m for m in prelude.get("tempi") or [] if "onset" in m), key=lambda m: m["onset"]):
             file_bar = max((n for n in starts if starts[n] <= float(mark["onset"]) + 1e-6 and n in renumbered), default=None)
             bpm = float(mark.get("bpm_quarter") or 0)
             if file_bar is not None and bpm > 0 and (not tempi or tempi[-1][0] != renumbered[file_bar]):
                 tempi.append([renumbered[file_bar], round(bpm, 1)])
+            elif file_bar is not None and bpm > 0 and renumbered[file_bar] < len(out):
+                later[renumbered[file_bar] + 1] = round(bpm, 1)       # a second mark inside a bar holds from the next bar on
+        for bar_number, bpm in later.items():
+            if not any(n == bar_number for n, _ in tempi):
+                tempi.append([bar_number, bpm])
+        tempi.sort()
         seconds = max(1.0, at * 60.0 / (tempi[0][1] if tempi else 80.0))
         density = len(prelude["notes"]) / seconds
         yield {
@@ -622,6 +681,7 @@ def wyschnegradsky(path: Path):
                        "against the composer's edition throughout"), "licence": "private use",
             "notes": [], "theory": {}, "phrases": [], "score": out, "bars": len(out),
             "tempi": tempi,
+            **expression_summary(out, prelude.get("marks_from") or "the transcription"),
             "checked": checked(grade, PRELUDES_PROOFREAD if prelude.get("hands_from") else PRELUDES_HOW, PRELUDES_LISTEN, doubtful),
             "two_hands": two_hands,
         }

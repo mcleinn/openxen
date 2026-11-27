@@ -1244,13 +1244,29 @@ class Tutor:
         bars = piece["score"]
         own = tuning_for(piece["tuning"])
 
+        by_part: dict[str, list[tuple[int, int]]] = {}
+        near: dict[tuple[int, int], tuple[int, float]] = {}        # (notes per octave, step of the piece) -> nearest step there, cents off
+
         def steps_of(part: str) -> list[tuple[int, int]]:      # (bar, step in the piece's tuning)
-            return [(bar["n"], s) for bar in bars for staff, events in bar["staves"].items() if part in (staff, "both")
-                    for _, _, steps in events for s in steps]
+            if part not in by_part:
+                by_part[part] = [(bar["n"], s) for bar in bars for staff, events in bar["staves"].items() if part in (staff, "both")
+                                 for _, _, steps in events for s in steps]
+            return by_part[part]
+
+        def nearest(target, s: int) -> tuple[int, float]:
+            # The nearest step of another equal tuning, by arithmetic: for equal tunings this is what
+            # `Tuning.retuned_from` (xenharmlib's retune) gives, and a hundred times faster, which matters
+            # for an estimate over every layout (a test holds the two against each other).
+            if target.edo == own.edo:
+                return s, 0.0
+            if (target.edo, s) not in near:
+                step = round(s * target.edo / own.edo)
+                near[(target.edo, s)] = (step, round(step * 1200.0 / target.edo - s * 1200.0 / own.edo, 1))
+            return near[(target.edo, s)]
 
         def fit(target, have: set[int], part: str) -> tuple[int, int, int, list[int]]:
             notes = steps_of(part)
-            pitches = [target.retuned_from(own, s)[0] if target.edo != own.edo else s for _, s in notes]
+            pitches = [nearest(target, s)[0] for _, s in notes]
             shift, covered = self._fit_shift(pitches, have, target.edo)
             outside = sorted({bar for (bar, _), p in zip(notes, pitches) if p + shift not in have})
             return shift, covered, len(pitches), outside
@@ -1273,7 +1289,7 @@ class Tutor:
         now = words(t, set(kb._by_pitch))
         result = {"now": {"tuning": f"{t.edo} notes per octave", **now}}
         if piece["tuning"] != t.edo:
-            worst = max((abs(t.retuned_from(own, s)[1]) for _, s in steps_of("both")), default=0.0)
+            worst = max((abs(nearest(t, s)[1]) for _, s in steps_of("both")), default=0.0)
             result["now"]["approximation"] = f"the piece is written for {piece['tuning']} notes per octave; here on the nearest notes, up to {worst:.0f} cents off"
         full_now = fit(t, set(kb._by_pitch), "both")
         others = []
@@ -1281,14 +1297,15 @@ class Tutor:
             if edo == t.edo and have == set(kb._by_pitch):
                 continue
             target = tuning_for(edo)
+            worst = max((abs(nearest(target, s)[1]) for _, s in steps_of("both")), default=0.0)
+            if worst > 20:              # a tuning that is further off than that does not render the piece
+                continue
             shift, covered, total, _ = fit(target, have, "both")
-            worst = 0.0 if edo == own.edo else max((abs(target.retuned_from(own, s)[1]) for _, s in steps_of("both")), default=0.0)
-            if worst <= 20:             # a tuning that is further off than that does not render the piece
-                others.append((edo != own.edo, -covered, worst, name, edo, shift, covered, total))
+            others.append((edo != own.edo, -covered, worst, name, edo, shift, covered, total))
         result["other_tunings"] = [
             {"layout": name, "tuning": f"{edo} notes per octave", "both hands": f"{covered} of {total} ({100 * covered // total}%)",
              **({"transposed": self._shift_words(shift, edo)} if shift else {}),
-             "pitch": "as written" if not approx else f"nearest notes, up to {worst:.0f} cents off"}
+             "intervals": "exact (the piece's own tuning)" if not approx else f"approximated: nearest notes, up to {worst:.0f} cents off"}
             for approx, _, worst, name, edo, shift, covered, total in sorted(others)[:4]]
         own_layouts = [o for o in others if not o[0]]
         if full_now[1] == full_now[2] and piece["tuning"] == t.edo:
@@ -1301,8 +1318,8 @@ class Tutor:
                              f"(see right hand alone, left hand alone).")
             if piece["tuning"] != t.edo and own_layouts:
                 best = min(own_layouts)
-                parts.append(f"The piece is written for {piece['tuning']} notes per octave: switching the tuning to layout {best[3]} gives its real "
-                             f"pitches ({100 * best[6] // best[7]}% of the notes have a key there).")
+                parts.append(f"The piece is written for {piece['tuning']} notes per octave: switching the tuning to layout {best[3]} gives its "
+                             f"intervals exactly ({100 * best[6] // best[7]}% of the notes have a key there, transposed as fits best).")
             result["say"] = " ".join(parts)
         return result
 
@@ -1835,6 +1852,9 @@ class Tutor:
                                         f"transcription differ (printed score, engraving or recording); those bars come with both readings")
             if piece.get("two_hands"):
                 head["two_hands"] = dict(piece["two_hands"])
+            from . import expression                    # the marks of the print the piece carries (expression.py)
+            if expression.overview(piece):
+                head["expression"] = expression.overview(piece)
             head["note"] = ("get with phrase = a bar number and phrases = how many bars (up to 4) gives those bars as steps; part = upper "
                             "(right hand), lower (left hand) or both. Teach hands separately first, a bar or two at a time.")
             return head
@@ -1911,6 +1931,10 @@ class Tutor:
                                          "neither is an error of theirs.")
         head.update({"bars_given": f"{chosen[0]['n']}" + (f"-{last_bar}" if len(chosen) > 1 else ""), "time": chosen[0]["time"], "part": part,
                      "steps": steps})
+        from . import expression                        # dynamics, hairpins, tempo words, pedal ... of these bars, in words
+        said = expression.words(bars, chosen, part)
+        if said:
+            head["expression"] = said
         if missing:
             head["not_on_this_keyboard"] = list(dict.fromkeys(missing))
             head["not_on_this_keyboard_note"] = ("These notes of the bar have no key on the keyboard as it is and are left out of the steps. "
@@ -2400,6 +2424,8 @@ class Tutor:
         shift = self._fit_shift(every)[0] if octave is None else int(octave) * t.edo
         tempi = sorted(piece.get("tempi") or [])
         chosen = bars[from_bar - 1:to_bar]
+        from . import expression
+        perform = expression.Performance(piece)         # loudness, ritardandi, fermatas after the print's marks (expression.py)
         by_time: dict[float, list] = {}
         folded: dict[str, str] = {}
         silent: list[str] = []
@@ -2426,9 +2452,10 @@ class Tutor:
                             folded[t.label(pitch)] = t.label(near)
                             pitch = near
                         key = kb.keys_for_pitch(pitch)[0]
-                        velocity = 84 if staff == "upper" else 68
-                        by_time.setdefault(round(at + beat * quarter, 4), []).append(((key.board, key.key), velocity, max(30, int(dur * quarter * 950))))
-            at += bar["length"] * quarter
+                        velocity = perform.velocity(bar, beat, staff) or (84 if staff == "upper" else 68)
+                        by_time.setdefault(round(at + perform.seconds(bar, beat, quarter), 4), []).append(
+                            ((key.board, key.key), velocity, max(30, int(perform.held(bar, beat, dur, staff, quarter) * 950))))
+            at += perform.seconds(bar, bar["length"], quarter)
         moments = sorted(by_time.items())
         if not moments:
             raise TutorError("there is nothing to play in these bars for this part")
@@ -2448,6 +2475,8 @@ class Tutor:
             told["approximated"] = f"written for {piece['tuning']} notes per octave, played on the nearest notes of {t.edo}"
         if piece.get("checked"):
             told["transcription"] = piece["checked"]["grade"]
+        if perform.assumed:
+            told["expression"] = perform.assumed
         stop = threading.Event()
         thread = threading.Thread(target=self._play_run, args=(moments, bool(lights), stop), name="tutor-play", daemon=True)
         self._playing = (thread, stop, told)

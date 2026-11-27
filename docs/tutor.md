@@ -107,7 +107,7 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns |
 | `harmony` | From the tuning itself: the chords closest to a chord by the smallest movement of the voices (`neighbours`), a progression built from such moves (`path`), progressions and chord vocabularies from the Xenharmonic Wiki (`xen`). From one repertoire: which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
 | `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps. Also the cycles of the rhythm library (talas with their theka, mridangam lessons, usul) by name, sounded on tabla or mridangam where set up |
-| `play_piece` | Plays a composition of the library from bar to bar in the background: absolute timing (no drift), every note with its own length, the piece's tempo marks (`tempi` per bar) times `speed`, octave transposition where the keyboard is too small, one hand or both; `stop` ends it |
+| `play_piece` | Plays a composition of the library from bar to bar in the background: absolute timing (no drift), every note with its own length, the piece's tempo marks (`tempi` per bar) times `speed`, octave transposition where the keyboard is too small, one hand or both; the print's dynamics as key velocity, hairpins as ramps, ritardando / rallentando as a gradual slowing, fermatas (what is assumed comes back as `expression`); `stop` ends it |
 | `drone` | Holds the tanpura's four notes for a raga (or given notes) under everything else until stopped; names the tuning rule and where the sources disagree |
 | `tuning_notes` | Search and read a local copy of the Xenharmonic Wiki: the pages of every tuning the keyboard has a layout for, notation, the chain of fifths, commas, temperaments, beginners' guides |
 | `improvise` | The server keeps time: count-in, a backing (chords, roots, drone), the notes of the sounding chord lit; reports per chord what was played, the share of chord tones, what each chord started on, and one rule (only these notes, chord tones only, chord tone or guide tone first) |
@@ -510,6 +510,56 @@ notes outside, and the same for the other layouts the keyboard can be switched t
 (`_fit_shift`), since on an isomorphic layout that keeps shapes and fingering; bars handed out for teaching and
 `play_piece` use the same shift. Notes that still have no key are left out of the steps and named. Grace notes
 and trills of the print are carried per bar (`marks`) and shown on the step.
+
+### Expression marks
+
+Dynamics, crescendo and diminuendo, tempo words, pedal, accents, fermatas and slurs of the print travel with
+the piece (`host/tutor/expression.py`; how they are read: [score-transcription.md](score-transcription.md)).
+Library format: a bar may hold `"expression"`, the marks that start in it:
+
+```json
+{"type": "crescendo", "beat": 1.5, "hand": "both", "text": "crescendo poco a poco", "to": [21, 0.0]}
+```
+
+| Field | Meaning |
+| --- | --- |
+| `type` | `dynamic`, `crescendo`, `diminuendo`, `tempo`, `pedal`, `articulation`, `fermata`, `slur`, `expression` (any other word, e.g. "simile") |
+| `beat` | quarter notes from the barline (0 = first beat) |
+| `hand` | `right`, `left` or `both`: the staff the mark stands at |
+| `value` | fixed vocabulary: the level (`pp` .. `ff`, `mezzo`, `sf`), `rallentando` / `ritardando` / `accelerando` / `a tempo`, `down` / `simile` (pedal), `accent` / `staccato` / `tenuto` / `marcato` / `staccatissimo` |
+| `text` | the printed words, verbatim ("rallent. molto", "Ped.", "più f") |
+| `hairpin` | true for a wedge; a crescendo without it is the word with its dashes |
+| `to` | `[bar, beat]` where a span ends (bars as renumbered; the bar after the last one = the end of the piece) |
+
+The piece has `"expression": {"kinds": {type: count}, "from": where they were read}`. `library_build.carry_marks`
+puts the marks of `preludes.json` (times from the start of the piece) into the renumbered bars; a mark read from the
+two-piano engraving stands at a staff of one piano and goes to the hand that staff falls to (upper: right, lower:
+left, between the staves: both). The two Woyten pieces carry only what their files hold: fermatas and staccato dots.
+
+What the tutor says: `library get` with the id only names the kinds of marks and where they were read
+(`expression`); with a bar it gives them in words, for the hand asked for:
+
+```json
+"expression": ["bar 19: crescendo poco a poco goes on (from bar 16) to bar 21",
+               "bar 19, right hand: f", "bar 19, left hand: mezzo (between mp and mf)"]
+```
+
+A span that began earlier is named in the first bar asked for ("pedal: hold through the bar"). Beats are counted as
+elsewhere (1 = the first quarter note of the bar).
+
+What `play_piece` plays (`expression.Performance`; the assumptions come back in `expression` of its answer):
+
+| Mark | Played as |
+| --- | --- |
+| dynamic | key velocity per hand: ppp 28, pp 40, p 52, mp 64, mezzo 70, mf 76, f 90, ff 104, fff 116; 70 before the first mark; "più" / "meno" move the level by 8. A piece without dynamics keeps 84 (right) / 68 (left) |
+| crescendo, diminuendo | a straight ramp from the level in force to the next dynamic of that hand, if it stands within a quarter note after the end and lies in the right direction; otherwise one level (12) up or down |
+| accent, sf, sfz; marcato | 14 (18) added to the notes at that moment |
+| staccato, staccatissimo | half, a quarter of the length |
+| ritardando, rallentando | the tempo falls in a straight line to 70 % at the end of the span ("molto" 55 %, "poco" 85 %); the span is the printed one (dashes), else to the next tempo word within two bars, else to the end of the bar; after it the marked tempo again. Not applied where the piece's own metronome marks already change in those bars (Raz wrote his ritardandi out as metronome marks) |
+| fermata | its moment lasts twice as long |
+| pedal, tenuto, slurs | said, not played (the keyboard has no pedal message) |
+
+A second tempo mark inside a bar (the tempo taken up again after a ritardando) holds from the next bar on (`tempi`).
 
 How these scores were transcribed and checked, which method fits which kind of source, and what went
 wrong, is in [score-transcription.md](score-transcription.md).

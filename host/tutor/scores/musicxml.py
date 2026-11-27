@@ -137,6 +137,7 @@ class Event:
     grace: bool = False
     fermata: bool = False
     staccato: bool = False
+    articulations: tuple = ()        # "accent", "tenuto", "marcato", "staccatissimo", "staccato" (a key of ARTICULATIONS)
 
 
 @dataclass
@@ -165,6 +166,12 @@ class Mark:
     staff: int
     text: str
     tempo: bool = False              # text is beats per minute of a quarter note
+    kind: str = ""                   # an expression mark (see `expression_marks`): dynamic | wedge | words | pedal | stop
+    value: str = ""                  # dynamic: its level ("pp"); wedge: crescendo | diminuendo; pedal: start | stop; stop: wedge | dashes
+    number: int = 1                  # which of the wedges or dashed lines open at the same time
+    dashes: bool = False             # words followed by a dashed line to a later `stop`
+    bold: bool = False               # tempo words
+    below: bool = True               # under the staff (dynamics, hairpins, pedal) or over it (tempo words)
 
 
 @dataclass
@@ -677,9 +684,11 @@ def to_musicxml(score: Score) -> str:
             if bar.repeat_start or bar.ending:
                 x.append('<barline location="left">' + (f'<ending number="{bar.ending}" type="start"/>' if bar.ending else "")
                          + ('<repeat direction="forward"/>' if bar.repeat_start else "") + "</barline>")
-            here = [m for m in marks if first_staff <= m.staff < first_staff + len(part.clefs) and bisect_right(starts, m.onset) - 1 == i]
+            # the end of a hairpin or of a dashed line that falls on a barline belongs to the bar before it
+            here = [m for m in marks if first_staff <= m.staff < first_staff + len(part.clefs)
+                    and (max(0, bisect_left(starts, m.onset) - 1) if m.kind == "stop" else bisect_right(starts, m.onset) - 1) == i]
             at = Fraction(0)
-            for mark in sorted(here, key=lambda m: m.onset):
+            for mark in sorted(here, key=lambda m: (m.onset, m.kind != "stop")):
                 offset = min(mark.onset - bar.start, bar.length)
                 if offset > at:
                     x.append(f"<forward><duration>{ticks(offset - at)}</duration></forward>")
@@ -804,7 +813,27 @@ def accidental_xml(name: str, tag: str = "accidental") -> str:
     return f'<{tag} smufl="{glyph}">other</{tag}>' if value == "other" else f"<{tag}>{value}</{tag}>"
 
 
+DYNAMICS = {"pppp", "ppp", "pp", "p", "mp", "mf", "f", "ff", "fff", "ffff", "sf", "sfz", "sffz", "fz", "fp", "sfp", "rf", "rfz", "n"}
+ARTICULATIONS = {"accent": "accent", "marcato": "strong-accent", "staccato": "staccato", "tenuto": "tenuto", "staccatissimo": "staccatissimo"}
+
+
 def direction_xml(mark: Mark, staff: int) -> str:
+    if mark.kind:
+        italic = f'<direction-type><words font-style="italic" font-size="10">{escape(mark.text)}</words></direction-type>' if mark.text else ""
+        if mark.kind == "dynamic":          # "mezzo" has no element of its own
+            sign = f"<{mark.value}/>" if mark.value in DYNAMICS else f"<other-dynamics>{escape(mark.value)}</other-dynamics>"
+            types = italic + f"<direction-type><dynamics>{sign}</dynamics></direction-type>"
+        elif mark.kind == "wedge":
+            types = f'<direction-type><wedge type="{mark.value}" number="{mark.number}"/></direction-type>'
+        elif mark.kind == "stop":
+            types = f'<direction-type><{mark.value} type="stop" number="{mark.number}"/></direction-type>'
+        elif mark.kind == "pedal":
+            types = f'<direction-type><pedal type="{mark.value}" line="no" sign="yes"/></direction-type>'
+        else:
+            if mark.bold:
+                italic = f'<direction-type><words font-weight="bold" font-size="11">{escape(mark.text)}</words></direction-type>'
+            types = italic + (f'<direction-type><dashes type="start" number="{mark.number}"/></direction-type>' if mark.dashes else "")
+        return f'<direction placement="{"below" if mark.below else "above"}">{types}<staff>{staff}</staff></direction>'
     if mark.tempo:
         number = re.match(r"[\d.]+", mark.text)
         kind = f"<metronome><beat-unit>quarter</beat-unit><per-minute>{escape(mark.text)}</per-minute></metronome>"
@@ -850,8 +879,9 @@ def voice_xml(voice: list[Seg], number: int, staff: int, ticks) -> list[str]:
             notations = ('<tied type="stop"/>' if k in seg.tie_stop else "") + ('<tied type="start"/>' if k in seg.tie_start else "")
             if position == 0:
                 notations += tuplet
-                if ev.staccato and seg.first:
-                    notations += "<articulations><staccato/></articulations>"
+                signs = list(dict.fromkeys((["staccato"] if ev.staccato else []) + [a for a in ev.articulations if a in ARTICULATIONS]))
+                if signs and seg.first:
+                    notations += "<articulations>" + "".join(f"<{ARTICULATIONS[a]}/>" for a in signs) + "</articulations>"
                 if ev.fermata and seg.first:
                     notations += "<fermata/>"
             out.append("<note>" + ("<chord/>" if position else "") + pitch_xml(note) + f"<duration>{duration}</duration>{ties}{value}"
@@ -1201,7 +1231,82 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
     score.marks += [Mark(onset, 0, " / ".join(values), tempo=True) for onset, values in sorted(tempi.items())]
     if updown:
         set_clefs(score)                 # each staff holds what its hand plays, wherever that lies: the clef follows
+        expression_marks(score, prelude.get("marks") or [], total)
     return score
+
+
+def expression_marks(score: Score, marks: list, total: Fraction) -> None:
+    """The expression marks of a transcription (`marks` of a prelude: reference/music/wyschnegradsky/MARKS.md) on a
+    sheet of two staves. hand right -> upper staff, left -> lower staff, both -> under the upper staff (between the
+    two); marks read from the two-piano engraving have `staff` (upper, lower, both) instead and go the same way.
+
+      dynamic       <dynamics> ("mezzo", for which MusicXML has no element, as <other-dynamics>; "più f" as <words>)
+      crescendo, diminuendo   a hairpin as <wedge> ... <wedge type="stop">, words as <words> with <dashes> to their end
+      tempo         <words> in bold over the upper staff, with <dashes> where the print has them
+      pedal         <pedal type="start" sign="yes"> and, where a release is printed, <pedal type="stop">; "simile" as words
+      articulation  <articulations> on the notes of that hand at that moment (accent, strong-accent, staccato, tenuto, staccatissimo)
+      fermata       <fermata> on those notes
+      expression    <words>
+      slur          not written (a slur needs its two notes in one voice, which this layout does not keep)."""
+    open_until: dict[str, list[Fraction]] = {"wedge": [], "dashes": []}
+
+    def number(kind: str, onset: Fraction, end: Fraction) -> int:
+        slots = open_until[kind]
+        for k, busy in enumerate(slots):
+            if busy <= onset:
+                slots[k] = end
+                return k + 1
+        slots.append(end)
+        return len(slots)
+
+    seen = set()
+    for m in sorted(marks, key=lambda m: float(m["onset"])):
+        onset = frac(m["onset"])
+        hand = m.get("hand") or {"upper": "right", "lower": "left"}.get(m.get("staff"), "both")
+        key = (m["type"], onset, hand, m.get("value"), m.get("text"), m.get("end"))
+        if onset >= total or key in seen:
+            continue
+        seen.add(key)
+        staff = 1 if hand == "left" else 0
+        end = min(frac(m["end"]), total) if m.get("end") is not None else None
+        kind, value, text = m["type"], m.get("value", ""), m.get("text", "")
+        if kind == "dynamic":
+            if text and text != value:      # "più f": as words; Verovio sets the f of such a text in its music font, which the PDF step loses
+                score.marks.append(Mark(onset, staff, text, kind="words"))
+            else:
+                score.marks.append(Mark(onset, staff, "", kind="dynamic", value=value))
+        elif kind in ("crescendo", "diminuendo") and end is not None and end > onset:
+            if m.get("hairpin") or not text:
+                n = number("wedge", onset, end)
+                score.marks += [Mark(onset, staff, "", kind="wedge", value=kind, number=n), Mark(end, staff, "", kind="stop", value="wedge", number=n)]
+            else:
+                n = number("dashes", onset, end)
+                score.marks += [Mark(onset, staff, text, kind="words", dashes=True, number=n), Mark(end, staff, "", kind="stop", value="dashes", number=n)]
+        elif kind == "tempo":
+            if end is not None and end > onset:
+                n = number("dashes", onset, end)
+                score.marks += [Mark(onset, 0, text or value, kind="words", dashes=True, number=n, bold=True, below=False),
+                                Mark(end, 0, "", kind="stop", value="dashes", number=n, below=False)]
+            else:
+                score.marks.append(Mark(onset, 0, text or value, kind="words", bold=True, below=False))
+        elif kind == "pedal":
+            if value == "simile":
+                score.marks.append(Mark(onset, 1, text or "simile", kind="words"))
+            else:
+                score.marks.append(Mark(onset, 1, "", kind="pedal", value="start"))
+                if end is not None and end > onset:
+                    score.marks.append(Mark(end, 1, "", kind="pedal", value="stop"))
+        elif kind in ("articulation", "fermata"):
+            done = set()                # once per staff: two voices that begin together share the sign
+            for ev in score.events:
+                if ev.onset == onset and not ev.grace and (hand == "both" or ev.staff == staff) and ev.staff not in done:
+                    done.add(ev.staff)
+                    if kind == "fermata":
+                        ev.fermata = True
+                    elif value not in ev.articulations:
+                        ev.articulations += (value,)
+        elif kind == "expression":
+            score.marks.append(Mark(onset, staff, text or value, kind="words"))
 
 
 # ---------------------------------------------------------------- engraving

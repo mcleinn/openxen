@@ -837,6 +837,11 @@ def test_what_of_a_piece_fits_the_keyboard_and_what_the_print_marks(tmp_path):
         assert "grace" in bar["steps"][0] and "trill begins here" in bar["steps"][1]["trill"] and "5 short notes" in bar["steps"][1]["trill"]
         assert len(bar["not_on_this_keyboard"]) == 1 and "left out" in bar["not_on_this_keyboard_note"]
         t.demo(bar["steps"][:3], tempo_bpm=240, beats_per_step=1)          # the steps are playable: nothing without a key is in them
+        # the estimate's quick arithmetic for "nearest note in another tuning" agrees with xenharmlib's retune
+        t24, t53, t31 = tuning_for(24), tuning_for(53), tuning_for(31)
+        for target in (t53, t31):
+            for step in range(40, 170, 7):
+                assert target.retuned_from(t24, step)[0] == round(step * target.edo / 24), (target.edo, step)
         # transposing the whole piece makes notes above the keyboard playable; a whole octave is preferred where it serves as well
         top = sorted(t.keyboard._by_pitch)[-20:]
         assert t._fit_shift([p + 3 for p in top]) == (-31, 20) and t._fit_shift(top) == (0, 20)
@@ -859,3 +864,131 @@ def test_the_real_collections_if_they_are_installed():
     assert rast and all(e["tuning"] == 53 and e["phrases"] > 0 for e in rast)
     piece = library.piece(rast[0]["id"])
     assert all(p is None or 100 < p < 500 for p, _ in piece["notes"])
+
+
+# ---- expression marks of the print: carried into the bars, said and played
+
+def marked_prelude() -> dict:
+    """Three bars of 2/4 with a barline that is no bar after the first (file bars 1, 3, 4 become 1, 2, 3)."""
+    notes = [{"onset": float(i), "dur": 1.0, "step": 96, "piano": 1, "bar": 1 if i < 2 else 3 if i < 4 else 4, "hand": "right"} for i in range(6)]
+    notes += [{"onset": float(i), "dur": 2.0, "step": 72, "piano": 1, "bar": 1 if i < 2 else 3 if i < 4 else 4, "hand": "left"} for i in (0, 2, 4)]
+    marks = [{"type": "dynamic", "onset": 0.0, "hand": "both", "value": "pp", "text": "pp", "source": "print22a"},
+             {"type": "pedal", "onset": 0.0, "end": 4.0, "hand": "left", "value": "down", "text": "Ped.", "source": "print22a"},
+             {"type": "crescendo", "onset": 1.0, "end": 4.0, "hand": "both", "text": "crescendo poco a poco", "source": "print22a"},
+             # read from the two-piano engraving: a staff instead of a hand, and the same sign at both pianos
+             {"type": "articulation", "onset": 2.0, "bar": 2, "piano": 1, "staff": "lower", "value": "accent", "source": "engraving"},
+             {"type": "articulation", "onset": 2.0, "bar": 2, "piano": 2, "staff": "lower", "value": "accent", "source": "engraving"},
+             {"type": "dynamic", "onset": 4.0, "hand": "right", "value": "f", "text": "f", "source": "print22a"},
+             {"type": "dynamic", "onset": 4.0, "hand": "left", "value": "mp", "text": "mp", "source": "print22a"},
+             {"type": "tempo", "onset": 4.0, "end": 6.0, "hand": "both", "value": "rallentando", "text": "Rallentando", "source": "print22a"},
+             {"type": "fermata", "onset": 5.0, "hand": "right", "source": "print22a"}]
+    return {"number": 3, "tuning": 24, "bars": 4, "time": "2/4", "time_changes": [{"bar": 1, "time": "2/4"}], "zero_length_bars": [2],
+            "tempi": [{"onset": 0.0, "bpm_quarter": 120.0}], "notes": notes, "marks": marks, "marks_from": "op. 22a (Belaieff 418), read by eye",
+            "hands_from": "op. 22a (Belaieff 418)"}
+
+
+def test_expression_marks_reach_their_bars_and_the_tutor_says_them(tmp_path):
+    source, out = tmp_path / "src", tmp_path / "lib"
+    (source / "wyschnegradsky").mkdir(parents=True)
+    (source / "wyschnegradsky" / "preludes.json").write_text(json.dumps([marked_prelude()]), encoding="utf-8")
+    build.build(source, out)
+    library = lib.Library(out)
+    piece = library.piece("score/wyschnegradsky-prelude-03")
+    one, two, three = piece["score"]
+    # beats count from the barline; a span says where it ends in the new numbering; the bar after the last = the end of the piece
+    assert one["expression"] == [{"type": "dynamic", "beat": 0.0, "hand": "both", "value": "pp", "text": "pp"},
+                                 {"type": "pedal", "beat": 0.0, "hand": "left", "value": "down", "text": "Ped.", "to": [3, 0.0]},
+                                 {"type": "crescendo", "beat": 1.0, "hand": "both", "text": "crescendo poco a poco", "to": [3, 0.0]}]
+    # the mark at the barline that is no bar stands in the bar that begins there; lower staff -> left hand; once, not once per piano
+    assert two["expression"] == [{"type": "articulation", "beat": 0.0, "hand": "left", "value": "accent"}]
+    assert {"type": "tempo", "beat": 0.0, "hand": "both", "value": "rallentando", "text": "Rallentando", "to": [4, 0.0]} in three["expression"]
+    assert {"type": "fermata", "beat": 1.0, "hand": "right"} in three["expression"]
+    assert piece["expression"] == {"kinds": {"dynamic": 3, "pedal": 1, "crescendo": 1, "articulation": 1, "tempo": 1, "fermata": 1},
+                                   "from": "op. 22a (Belaieff 418), read by eye"}
+    fake = FakeXentool(sample_setup(24, (0, 1, 2, 3, 4)))
+    t = Tutor(fake, library=library)
+    try:
+        head = t.library("get", id=piece["id"])["expression"]
+        assert "dynamics (3)" in head["carries"] and "tempo words (1)" in head["carries"] and "Belaieff 418" in head["read_from"]
+        assert t.library("get", id=piece["id"], phrase=1, part="both")["expression"] == [
+            "bar 1: pp", "bar 1: pedal down (Ped.), lift at bar 3", "bar 1, beat 2: crescendo poco a poco to bar 3"]
+        # a bar inside a span is told that it goes on, and how far
+        assert t.library("get", id=piece["id"], phrase=2, part="both")["expression"] == [
+            "pedal: hold through the bar", "bar 2: crescendo poco a poco goes on (from bar 1) to the next bar", "bar 2, left hand: accent on beat 1"]
+        assert t.library("get", id=piece["id"], phrase=3, part="both")["expression"] == [
+            "bar 3, right hand: f", "bar 3, left hand: mp", "bar 3: Rallentando (slow down gradually) to the end",
+            "bar 3, beat 2, right hand: fermata (hold it longer)"]
+        # one hand alone hears its own marks and those for both hands
+        assert t.library("get", id=piece["id"], phrase=3, part="lower")["expression"] == [
+            "bar 3, left hand: mp", "bar 3: Rallentando (slow down gradually) to the end"]
+        # playing: loudness from the dynamics, the ramp of the crescendo, the stress of the accent; the rallentando and the fermata take time
+        told = t.play_piece(id=piece["id"], tempo_bpm=400, octave=0)
+        assert any("Rallentando" in line and "70%" in line for line in told["expression"]) and any("fermata" in line for line in told["expression"])
+        assert told["seconds"] > 6 * 60 / 400 * 1.2             # six quarter notes, the last two stretched
+        t._playing[0].join(timeout=5)
+        # pp = 40; the crescendo climbs to the f (90) of the right hand and the mp (64) of the left, whose accent adds 14 on the way
+        assert [v for _, v, _ in fake.sounded[:2]] == [40, 40] and sorted({v for _, v, _ in fake.sounded}) == [40, 57, 62, 64, 73, 90]
+    finally:
+        t.stop()
+        t.pump.stop()
+
+
+def test_dynamics_become_velocity_and_tempo_words_time():
+    from tutor import expression
+    bar = lambda n, marks: {"n": n, "time": "2/4", "length": 2.0, "expression": marks,                        # noqa: E731
+                            "staves": {"upper": [[0.0, 1.0, [96]], [1.0, 1.0, [96]]], "lower": [[0.0, 2.0, [72]]]}}
+    bars = [bar(1, [{"type": "dynamic", "beat": 0.0, "hand": "both", "value": "pp"},
+                    {"type": "crescendo", "beat": 1.0, "hand": "both", "hairpin": True, "to": [3, 0.0]}]),
+            bar(2, [{"type": "articulation", "beat": 0.0, "hand": "left", "value": "accent"},
+                    {"type": "articulation", "beat": 1.0, "hand": "right", "value": "staccato"}]),
+            bar(3, [{"type": "dynamic", "beat": 0.0, "hand": "right", "value": "f"}, {"type": "dynamic", "beat": 0.0, "hand": "left", "value": "mp"},
+                    {"type": "tempo", "beat": 0.0, "hand": "both", "value": "rallentando", "text": "Rallentando", "to": [4, 0.0]},
+                    {"type": "fermata", "beat": 1.0, "hand": "right"}]),
+            bar(4, [{"type": "dynamic", "beat": 0.0, "hand": "both", "value": "f", "text": "più f"},
+                    {"type": "diminuendo", "beat": 1.0, "hand": "both", "hairpin": True, "to": [5, 0.0]}])]
+    play = expression.Performance({"score": bars, "tempi": [[1, 120.0]]})
+    one, two, three, four = bars
+    # the mapping: pp 40, mp 64, f 90; a hairpin is a straight ramp to the next dynamic of that hand
+    assert play.velocity(one, 0.0, "upper") == 40 == play.velocity(one, 1.0, "lower")
+    assert play.velocity(two, 0.5, "upper") == round(40 + 50 * 1.5 / 3) == 65 and play.velocity(three, 0.0, "upper") == 90
+    assert play.velocity(two, 0.0, "lower") == round(40 + 24 * 1 / 3) + 14          # the left hand goes to its own mp; the accent adds 14
+    assert play.velocity(three, 1.5, "lower") == 64
+    # "più f" moves the level in force by 8; a diminuendo with no dynamic after it goes one level (12) down and stays there
+    assert play.velocity(four, 0.0, "upper") == 98 and play.velocity(four, 0.0, "lower") == 72
+    assert play.velocity(four, 1.5, "upper") == 92 and play.velocity(four, 1.5, "lower") == 66
+    # time: a bar without tempo words is as long as written; the rallentando falls to 70 %, the fermata doubles its quarter note
+    assert play.seconds(one, 2.0, 0.5) == 1.0 and play.held(one, 0.0, 1.0, "upper", 0.5) == 0.5
+    assert play.held(two, 1.0, 1.0, "upper", 0.5) == 0.25                           # staccato: half the length
+    import math
+    upto = lambda x: 2 / 0.3 * math.log(1 / (1 - 0.15 * x))                         # noqa: E731
+    assert abs(play.seconds(three, 1.0, 1.0) - upto(1)) < 0.01
+    assert abs(play.seconds(three, 2.0, 1.0) - (upto(1) + 2 * (upto(2) - upto(1)))) < 0.02
+    assert play.seconds(four, 2.0, 1.0) == 2.0                                      # after the span the marked tempo again
+    assert any("70%" in line for line in play.assumed)
+    # where the piece's own metronome marks change in the span, the word is not played a second time
+    again = expression.Performance({"score": bars, "tempi": [[1, 120.0], [3, 80.0]]})
+    assert again.seconds(three, 1.0, 1.0) == 1.0 and any("not slowed again" in line for line in again.assumed)
+    # a piece without dynamics keeps the tutor's own loudness
+    plain = expression.Performance({"score": [bar(1, [])]})
+    assert plain.velocity(plain.bars[0], 0.0, "upper") is None and not plain.assumed
+
+
+def test_a_tempo_mark_inside_a_bar_holds_from_the_next_bar_and_note_marks_of_a_score_file_are_carried(tmp_path):
+    source, out = tmp_path / "src", tmp_path / "lib"
+    (source / "wyschnegradsky").mkdir(parents=True)
+    (source / "woyten16").mkdir(parents=True)
+    prelude = marked_prelude()
+    prelude["tempi"] = [{"onset": 0.0, "bpm_quarter": 120.0}, {"onset": 2.5, "bpm_quarter": 60.0}, {"onset": 3.5, "bpm_quarter": 90.0}]
+    (source / "wyschnegradsky" / "preludes.json").write_text(json.dumps([prelude]), encoding="utf-8")
+    score = {"title": "Little Piece", "tuning": 31, "bars": [{"n": 1, "time": "2/4", "staves": {
+        "upper": [{"beat": 1.0, "dur": 1.0, "notes": [{"step": 124}], "staccato": True}, {"beat": 2.0, "dur": 1.0, "notes": [{"step": 129}], "fermata": True}],
+        "lower": [{"beat": 1.0, "dur": 2.0, "notes": [{"step": 93}], "fermata": True}]}}]}
+    (source / "woyten16" / "dont_take_five.json").write_text(json.dumps(score), encoding="utf-8")
+    build.build(source, out)
+    library = lib.Library(out)
+    # the slower tempo counts for its bar, the tempo taken up again inside that bar for the bars after it
+    assert library.piece("score/wyschnegradsky-prelude-03")["tempi"] == [[1, 120.0], [2, 60.0], [3, 90.0]]
+    piece = library.piece("score/dont-take-five")
+    assert piece["score"][0]["expression"] == [{"type": "articulation", "beat": 0.0, "hand": "right", "value": "staccato"},
+                                               {"type": "fermata", "beat": 1.0, "hand": "right"}, {"type": "fermata", "beat": 0.0, "hand": "left"}]
+    assert piece["expression"]["kinds"] == {"articulation": 1, "fermata": 2}

@@ -427,6 +427,27 @@ bass, bass an octave lower and treble an octave higher the clefs that need the f
 over the whole piece, a change counting as much as six ledger lines, so a passage brings a change of
 clef and a single note does not. Changes stand at barlines.
 
+## Expression marks on the sheet
+
+The one-instrument sheets (`--updown`, `--composer`) carry the marks of the transcription
+(`expression_marks` in the exporter); the four-staff proofreading sheet does not.
+
+| Mark | MusicXML | Verovio 6.4 |
+|---|---|---|
+| dynamic | `<direction placement="below"><direction-type><dynamics><pp/>` on the staff of its hand; "mezzo" as `<other-dynamics>` | drawn; `other-dynamics` as upright text |
+| "più f" | `<words font-style="italic">` | drawn. As words plus `<dynamics>` in one direction Verovio sets the f in its music font inside a text, which the SVG-to-PDF step loses |
+| hairpin | `<wedge type="crescendo" number="n"/>` ... `<wedge type="stop" number="n"/>` | drawn, also over a line break |
+| "crescendo - - -" | `<words>` and `<dashes type="start" number="n"/>` in one direction, `<dashes type="stop">` at the end | drawn with its dashed line |
+| tempo word | `<words font-weight="bold">` above the upper staff, with `<dashes>` where printed | drawn (not bold in the PDF) |
+| pedal | `<pedal type="start" line="no" sign="yes"/>`, `<pedal type="stop" .../>` where a release is printed; "simile" as words | "Ped." and the star drawn |
+| accent, staccato, tenuto, marcato, staccatissimo | `<notations><articulations><accent/>` ... (`strong-accent` for marcato) on the first note of the chord | drawn, on the side Verovio chooses (the accent of Prelude III, bar 47, under the note; the print has it above) |
+| fermata | `<notations><fermata/>` | drawn |
+| slur | not written: a slur needs both its notes in one voice, which the layout by hands does not keep | - |
+
+The end of a hairpin or dashed line that falls on a barline is written at the end of the bar before, so that the
+line does not reach into the next bar. Two marks at one moment and staff are stacked by Verovio, not always in the
+print's order.
+
 ## The preludes in the composer's own spelling
 
 `python -m tutor.scores.musicxml --all --composer` writes, for every prelude whose scale has been read from

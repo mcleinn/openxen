@@ -119,6 +119,30 @@ from the staff the note is printed on; never from pitch height, and never from w
 The tutor does not get the two-piano layout at all; it survives only in the four-staff proofreading
 sheet, for comparing with the source.
 
+## Expression marks
+
+Dynamics, hairpins, tempo words, pedal, accents, fermatas and slurs are part of the transcription
+(`"marks"` in `preludes.json`; format in `convert.py`'s docstring, method and counts in `MARKS.md` of
+the reference folder). Two ways in, as for the notes:
+
+- **Automatically from the vector PDF** (all 24 preludes): dynamics are glyphs of a text font, hairpins
+  pairs of slanted lines, accents, staccato dots, tenuto lines and fermatas glyphs at a note, slurs the
+  curves that are not ties, and the engraver's pedal is a small extra staff ("CC 64 Sustain": high note
+  = down, low note = up). A mark gets the time of the note column nearest in x and the staff it stands
+  at. This reads what the engraver wrote, per piano, and he wrote for playback: no tempo or expression
+  words at all (his ritardandi are metronome marks), "crescendo - - -" as hairpins, pedal only where
+  he needed it.
+- **By eye from the authoritative edition** (Prelude III so far): every bar's automatic marks are
+  cleared and the edition's entered with the override operation `marks` (add, change, delete, clear),
+  from a script, like the note corrections. Of the 46 marks the two-staff edition prints in Prelude
+  III the engraving has 32; the 14 others are the four tempo words, "simile", two hairpins, the one
+  accent, three dynamics missing and three at another level. The engraving has 103 more marks that
+  the two-staff edition does not print (staccato, tenuto, accents, slurs and each piano's own
+  dynamics of the two-piano version).
+
+Not carried: trill lines and octave lines (they are in the notes), arpeggio signs, fingering,
+the metronome mark as a mark (it is in `tempi`), and the text of the preface.
+
 ## Grades
 
 Every transcribed piece says how far it was checked (`checked` in the library, see tutor.md):
