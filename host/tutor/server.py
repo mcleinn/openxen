@@ -214,11 +214,12 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
                 sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half", nearest: bool = False, section: str | int | None = None) -> str:
+                rhythm: str = "half", nearest: bool = False, section: str | int | None = None, bars: int | None = None) -> str:
         """Music to teach with, ready as steps. action "overview": what there is.
         "search": pieces by tradition (makam, chant, jazz), mode (a makam such as Rast, or
         "mode 1"), form, level (1 easiest .. 5; gives that level and below) or text;
-        easiest first. "get" with id: the piece and its phrases; with phrase=N (phrases=how
+        easiest first. For jazz, form also finds the form of the tune ("AABA", "ABAC",
+        "blues") and bars its length (12, 16, 32); results show it as `structure`. "get" with id: the piece and its phrases; with phrase=N (phrases=how
         many in a row): the notes as steps with their lengths, for demo, run_exercise and
         fingering. "raga" with name (and root = where Sa lies): scale, ascent, descent,
         characteristic phrase and drone on the nearest steps of this tuning; a model, say so.
@@ -238,6 +239,13 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         Jazz: tunes come as chord changes (get with phrase=N gives section N as chord steps;
         voicing full, shell = root-third-seventh, guide = third and seventh, root; sevenths
         auto, harmonic or plain; part "changes" or "melody" for lead sheets that have both).
+        get with the id alone also gives the tune's `outline`: the form ("32 bars, AABA",
+        "12-bar blues"), each section with its bars in the form as played, what repeats what
+        (the same changes, another ending, a fourth higher), key areas, and a practice order.
+        For standards the form is the source's own (labels, repeats, endings); for tunes
+        without labels and for lead sheets it is computed, and says so. Then get with
+        `section` = a letter (A; A2 = the second A; bridge) or number gives that section
+        with the same options (voicing, sevenths, part).
         Compositions (tradition "composition"): get with the id alone gives an OUTLINE and no
         notes: sections (bar ranges, labels A, B, A' ..., what each is made of, how hard),
         what repeats what ("bars 4-5 = bars 2-3", also transposed: the same hand shape on
@@ -251,7 +259,7 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         nearest=true to play a piece written for another tuning on the nearest notes of
         this one (an approximation; the result says how far off). One phrase at a time."""
         return guard(tutor.library, action, id, phrase, phrases, tradition, mode, form, level, text, limit, name, root, scale, theory_pitches,
-                     part, voicing, sevenths, plain_roots, direction, count, rhythm, nearest, section)
+                     part, voicing, sevenths, plain_roots, direction, count, rhythm, nearest, section, bars)
 
     @server.tool()
     async def hand(ctx: Context, action: str = "status", hand: str = "right", fingers: list[int] | None = None,
@@ -397,12 +405,16 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         return guard(tutor.drone, action, raga, root, notes, pace_s, octave, loudness)
 
     @server.tool()
-    async def improvise(ctx: Context, changes: list[dict], rule: str = "free", allowed: list[str] | None = None,
+    async def improvise(ctx: Context, changes: list[dict] | None = None, rule: str = "free", allowed: list[str] | None = None,
                         tempo_bpm: float = 90, backing: str = "chords", count_in: int = 4, choruses: int = 1,
-                        lights: bool = True, click: bool = True, sound: str = "click") -> str:
+                        lights: bool = True, click: bool = True, sound: str = "click", id: str | None = None,
+                        section: str | int | None = None, voicing: str = "full") -> str:
         """The player improvises while you keep time and listen. `changes`: chord steps with
         their length in beats (a section from library get, or [{"notes": [...], "beats": 4,
-        "label": "C7"}]). The server counts in, sounds the `backing` (chords, roots, drone,
+        "label": "C7"}]). Or, instead of `changes`, `id` of a jazz tune of the library with
+        `section` of its outline (A, bridge, a number; without it the whole form) and
+        `voicing` of the backing: `choruses` then loops that section, e.g. the bridge four
+        times. The server counts in, sounds the `backing` (chords, roots, drone,
         none), lights the notes of the chord that is sounding (root orange), and records
         what is played against which chord. `rule` is what you asked of the player:
         "free"; "only" with `allowed` (notes that may be used, any octave); "chord_tones"
@@ -415,7 +427,8 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         beats on the drum where one is set up. The result also says how the notes
         sat on the beat (`timing`)."""
         return await blocking(ctx, tutor.improvise, changes=changes, rule=rule, allowed=allowed, tempo_bpm=tempo_bpm,
-                              backing=backing, count_in=count_in, choruses=choruses, lights=lights, click=click, sound=sound)
+                              backing=backing, count_in=count_in, choruses=choruses, lights=lights, click=click, sound=sound,
+                              id=id, section=section, voicing=voicing)
 
     @server.tool()
     async def listen(ctx: Context, max_seconds: float = 20, stop_after_silence: float = 2.0) -> str:

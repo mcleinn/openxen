@@ -104,14 +104,14 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `fingering` | Fingers for a phrase (melody, progression, mixed), chosen for the phrase as a whole; per step what the context changed and the alternatives |
 | `hand` | Measure the player's hand on the keys: resting position (five keys held), widest stretches thumb-little finger and index-little finger; or a size preset; kept in `host/tutor/state/player.json` |
 | `fingering_book` | The player's own fingerings per hand shape, kept between sessions; they come first in `find_shape` and `fingering` on every root |
-| `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns; a composition with its outline (sections, repeats, practice order) and by section or phrase |
+| `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns; a composition with its outline (sections, repeats, practice order) and by section or phrase; a jazz tune with its form (32 bars AABA, 12-bar blues), by section, and found by form or length |
 | `harmony` | From the tuning itself: the chords closest to a chord by the smallest movement of the voices (`neighbours`), a progression built from such moves (`path`), progressions and chord vocabularies from the Xenharmonic Wiki (`xen`). From one repertoire: which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
 | `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps. Also the cycles of the rhythm library (talas with their theka, mridangam lessons, usul) by name, sounded on tabla or mridangam where set up |
 | `play_piece` | Plays a composition of the library from bar to bar in the background: absolute timing (no drift), every note with its own length, the piece's tempo marks (`tempi` per bar) times `speed`, octave transposition where the keyboard is too small, one hand or both; the print's dynamics as key velocity, hairpins as ramps, ritardando / rallentando as a gradual slowing, fermatas (what is assumed comes back as `expression`); `stop` ends it |
 | `play_along` | The player plays bars of a composition in time and the rhythm is judged against the score: with a click at a share of the tempo (`mode` click) or at their own tempo with no click (`mode` follow); the other hand as accompaniment on request; per bar and hand early / late / on it, rushing and dragging, hands together or not, figures out of proportion, tempo played against the target, notes missing or wrong, what to practise next |
 | `drone` | Holds the tanpura's four notes for a raga (or given notes) under everything else until stopped; names the tuning rule and where the sources disagree |
 | `tuning_notes` | Search and read a local copy of the Xenharmonic Wiki: the pages of every tuning the keyboard has a layout for, notation, the chain of fifths, commas, temperaments, beginners' guides |
-| `improvise` | The server keeps time: count-in, a backing (chords, roots, drone), the notes of the sounding chord lit; reports per chord what was played, the share of chord tones, what each chord started on, and one rule (only these notes, chord tones only, chord tone or guide tone first) |
+| `improvise` | The server keeps time: count-in, a backing (chords, roots, drone), the notes of the sounding chord lit; reports per chord what was played, the share of chord tones, what each chord started on, and one rule (only these notes, chord tones only, chord tone or guide tone first); the changes as steps, or a tune of the library by `id` and `section` (loop the bridge) |
 | `set_lights` | Light keys by id or note with a role (`target`, `next`, `root`, `lh`, `rh`, `finger1`..`finger5`, `correct`, `wrong`) or a colour; clear single keys or all |
 | `demo` | Play and light steps for the player to watch and hear |
 | `played` | Everything played since the model was last told (or in the last N seconds), at once: notes in order, what was struck together, chord names, how long ago |
@@ -251,6 +251,102 @@ The improvisation course in the skill follows the order the beginner methods sha
 call-and-response, few notes over a drone, the blues, chord tones, shell voicings, the
 two-five-one with guide tones, approach notes, tunes); their texts and examples are not used.
 Research: `reference/research/jazz.md`.
+
+### The outline of a jazz tune
+
+Every jazz piece is stored with an `outline` too (`host/tutor/outline_jazz.py`, built with the library): the
+form as players name it, the sections with their bars in the form as played, what repeats what, key areas,
+and an order to learn the tune in. `library get` with the id only returns it with the overview, in about 600
+characters for a standard:
+
+```
+form: 32 bars, AABA                      key: Db
+sections: 1. A, bars 1-8: Db major
+          2. A, bars 9-16: as section 1, another ending (bar 16)
+          3. B (the bridge), bars 17-24: D major
+          4. A, bars 25-32: as section 1
+practice_order: 1. A (bars 1-8; 24 of the 32 bars): roots, shells, guide tones.  2. The bridge (bars 17-24).
+                3. The join: bar 32 (Db6 Gb7 Fm7b5 Bb7) leads back to bar 1.
+                4. Solo on one section looped, chord tones first; then the whole form.
+made: Form from the source's labels ... What repeats, the key areas and the practice order are worked out here: a suggestion.
+```
+
+What a source says comes first; only what it does not say is computed, and `made` (and `letters` in the
+stored outline) says which is which.
+
+**Standards.** `JazzStandards.json` gives each tune's form itself: sections with a label (A, B, C, D; i =
+intro, v = verse), `Repeats` and `Endings`. `library_build` unfolds them into the order played, and the
+outline takes the letters, the section boundaries and the bar counts from there (1,014 of 1,382 tunes
+entirely; `letters: source`). Computed, and marked as such:
+
+- *Labels one section off.* In 93 tunes the file's labels are displaced by one section: the first section
+  is called B and the last has none ("Body And Soul" as B, A, none for sections that are A A, B, A), or the
+  first has none and the second is A. A form does not begin at B, and its first letter belongs to its first
+  section, so the labels are moved back (`letters: source, moved`); if two sections that then share a letter
+  have unlike chords, the letters are computed instead. Checked on tunes whose form is common knowledge
+  (Body and Soul, Satin Doll, Confirmation, All the Things You Are, On Green Dolphin Street).
+- *Sections without a label* in a labelled tune (a tag, an interlude, a last A): the letter of the section
+  whose chords they share, else a new letter, a last one of up to four bars "coda" (`computed` on the section).
+- *Tunes without any label* (154): eight-bar units, what is left over joined to the last; sixteen-bar units
+  from 48 bars on where they repeat at least as well; a unit like an earlier one (the same chords, or the same
+  but for its ending) shares its letter. A blues stays whole.
+- *What repeats what*: sections are compared as bars of (root as one of twelve, chord family in
+  `harmony.py`'s shorthand), under all twelve transpositions: the same; the same but for the ending (the last
+  quarter, two bars at least); transposed, with the interval as players say it ("a fourth higher", "a half
+  step higher": So What's bridge); begins as an earlier one (its first half); a variant (60 % of the bars).
+  A section that is one unit moved along is a sequence ("bars 1-2 of it, then three times more, each a fourth
+  higher": the bridge of rhythm changes).
+- *The blues*, by this project's rule: twelve bars; bar 1 on the home chord (the source's key, else the first
+  chord), bar 5 a fourth above it, bar 7 or 11 home again (or the chord on its third), the chord a fifth above
+  in bar 9 or 10; chord kinds are not asked, so minor and "Bird" blues count; 24 bars that are this form with
+  every bar doubled count too. A blues is named "12-bar blues" instead of its letter, and takes the harmonic
+  seventh like one by its title.
+- *Key areas* per section, with the chord reader of `library.py` and no key finder: a dominant seventh chord
+  falling a fifth to a major chord, a minor or minor-sixth chord, or the home chord of the tune's own minor
+  key, also into the first bar of the next section; "stays on Dm11" for one chord throughout. Good for plain
+  cadences only: tritone substitutes, modal tunes and deceptive cadences give nothing.
+- *The turnaround*: the form ends on a dominant a fifth or a half step above its first chord.
+- *The practice order*: the section that fills most bars first (roots, shells, guide tones), then the others
+  (the bridge named as such in AABA and ABA; a transposed section as "the same shapes moved"), the join back
+  to the top, intro, verse and coda last, then a solo on one section looped and on the whole form. A blues:
+  three lines of four bars.
+
+**Lead sheets.** The MusicXML files carry no rehearsal letters. They carry repeat signs (233 of 502 files),
+endings (174), double bars (105), the words Verse, Chorus or Refrain (about 40), and D.C. / D.S. / coda
+marks (about 20); 220 carry nothing. The outline follows repeat signs and endings into the order played (a
+first ending lasts until its repeat sign), cuts where a repeat begins, ends or starts over, at a double bar
+and at Verse / Chorus, and divides what lies between into eight-bar units. Letters are always computed: a
+unit shares the letter of an earlier one if its melody is alike (bar against bar with the comparison of the
+composition outline, weighted by notes, 60 %; or 30 % with three quarters of the chords; or the same first
+half), an exact transposition is reported with its interval. A whole form printed or repeated twice is
+given once (121 files). A pickup bar is not counted, also where it is written as a whole bar beginning with
+rests. Sections point to the printed bars, notes and chords, so the second A of a repeat is "bars 9-16
+(printed 1-7, 9)". D.C., D.S. and coda jumps are not followed and are named.
+
+**The same tune twice.** A standard and a lead sheet with the same title (without articles, brackets and
+punctuation) and, where both name one, a composer's name in common are the same tune: each outline names
+the other under `same_tune` and says whether the forms agree. They are compared as letters and bars, then
+with the standard read in eight-bar units (the source's AB in sixteens is the lead sheet's ABAC), with a bar
+or two of tolerance for a pickup or final bar. Of 141 linked standards 78 agree (56 outright, 22 in
+eight-bar units), 1 agrees on the chorus after a verse, 62 differ; 8 pairs share a title but not a composer
+and are not linked. The differences are stated, not forced: most are lead sheets that include the verse or
+a second strain the changes leave out, a last A that the melody varies too much to be called A, or a
+source whose form is shorter than the song (Cherokee has A A B, 48 bars, in the changes file).
+
+**In the tools.** `library get` with `section` = a letter ("A": the first A; "A2": the second; "bridge",
+"intro", "verse", "coda") or number returns that section with the options the jazz path has (`voicing`,
+`sevenths`, `plain_roots`; for a lead sheet the melody, or the chords with `part: changes`), with where the
+same section comes again. `improvise` takes `id` and `section` instead of `changes` and loops the section
+`choruses` times. `library search` finds by `form` ("AABA" must be the whole form, "blues" a part of it;
+the style, "Medium Swing", still works) and by `bars`, and shows the form as `structure`. Bar numbers count
+the form as played, so they differ from a printed lead sheet with repeat signs. Not changed: `get` with
+`phrase` = N still gives the Nth section as the source lists it.
+
+Limits: the changes are those of the iReal Pro community, so a tag or interlude written into a chart is
+part of the form here (I Got Rhythm: 32 bars and a 4-bar coda, not the song's 34); whole bars only; no
+melody for the standards, so two sections with the same chords and different tunes are one letter; lead
+sheet letters are a suggestion and wrong where a tune varies its A a lot; 3/4 and 4/4 are treated alike
+(eight-bar units).
 
 Not included: modern microtonal compositions. For 53 none could be found as scores or MIDI,
 only as audio (search of 2026-11-26); ordinary repertoire translated to 53 (pure thirds, comma

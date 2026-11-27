@@ -27,9 +27,11 @@ Writes `build/tutor-library/`: `index.json` (one entry per piece, no notes) and 
                                          Uzdilek) differs from the practice value in "notes"
      "phrases": [[first, last], ...],    note indices, both included
      "key": "Gmin",                      jazz only
-     "changes": [{"label": "A", "bars": [["Cm7"], ["F7"], ["Gm7", "Gb7"], ...]}, ...]}
+     "changes": [{"label": "A", "bars": [["Cm7"], ["F7"], ["Gm7", "Gb7"], ...]}, ...],
                                          jazz only: the form with repeats and endings written
                                          out, chord symbols per bar (evenly spread in the bar)
+     "outline": {...}}                   jazz: the form, sections, what repeats, key areas, practice
+                                         order (outline_jazz.py); compositions: outline.py
 
 Levels 1 (first pieces) to 5 are a rough grading by form, length and range; see `_level_*`.
 """
@@ -276,6 +278,7 @@ def _changes_level(bars: list[list[str]], rhythm: str) -> int:
 
 
 def jazz_changes(path: Path):
+    from . import outline_jazz
     seen: dict[str, int] = {}
     for tune in json.loads(path.read_text(encoding="utf-8")):
         sections = []
@@ -295,13 +298,17 @@ def jazz_changes(path: Path):
         bars = [bar for s in sections for bar in s["bars"]]
         slug = _slug(tune["Title"])
         seen[slug] = seen.get(slug, 0) + 1
-        yield {
+        piece = {
             "id": f"jazz/{slug}" + (f"-{seen[slug]}" if seen[slug] > 1 else ""), "title": tune["Title"], "tradition": "jazz",
             "mode": tune.get("Key", ""), "form": tune.get("Rhythm", ""), "meter": tune.get("TimeSignature") or "4/4",
             "composer": tune.get("Composer", ""), "level": _changes_level(bars, tune.get("Rhythm", "")), "tuning": None,
             "source": "JazzStandards (iReal Pro community changes)", "licence": "chord changes; private use",
             "key": tune.get("Key", ""), "notes": [], "theory": {}, "phrases": [], "changes": sections, "bars": len(bars),
         }
+        made = outline_jazz.standard(piece)         # the form the source gives, and what is worked out from the chords
+        if made:
+            piece["outline"] = made
+        yield piece
 
 
 # --- jazz: lead sheets (MusicXML) ---
@@ -331,9 +338,46 @@ def leadsheet(xml: bytes) -> dict | None:
     breaks: set[int] = set()
     bars: list[list[str]] = []
     tied = False
+    measures: list[dict] = []           # what the outline needs of each written measure (outline_jazz.melody)
+    ending: list[int] = []
     for measure in part.findall("measure"):
         chords: list[str] = []
+        at = 0                          # where in the measure, in divisions
+        seen = {"first": len(notes), "events": [], "end": 0}
+        if ending:
+            seen["ending"] = list(ending)
         for el in measure:
+            if el.tag in ("backup", "forward"):
+                at += (-1 if el.tag == "backup" else 1) * int(el.findtext("duration") or 0)
+            elif el.tag == "note" and el.find("chord") is None and el.find("grace") is None:
+                if (el.findtext("voice") or "1") == "1" and el.find("pitch") is not None and not any(t.get("type") == "stop" for t in el.findall("tie")):
+                    seen["events"].append([round(at / divisions, 3), el.findtext("pitch/step") + _ALTER.get(int(float(el.findtext("pitch/alter") or 0)), "")
+                                           + (el.findtext("pitch/octave") or "4")])
+                at += int(el.findtext("duration") or 0)
+                seen["end"] = max(seen["end"], at)
+            elif el.tag == "barline":
+                repeat, volta = el.find("repeat"), el.find("ending")
+                if repeat is not None:
+                    seen["forward" if repeat.get("direction") == "forward" else "backward"] = True
+                    if repeat.get("times"):
+                        seen["times"] = int(repeat.get("times"))
+                if volta is not None and volta.get("type") == "start":
+                    ending = [int(x) for x in re.findall(r"\d+", volta.get("number") or "")] or [1]
+                    seen["ending"] = list(ending)
+                elif volta is not None:
+                    ending = []
+                if el.findtext("bar-style") == "light-light":
+                    if el.get("location") == "left" and measures:
+                        measures[-1]["double"] = True
+                    elif el.get("location") != "left":
+                        seen["double"] = True
+            elif el.tag == "direction":
+                for mark in el.iter():
+                    text = (mark.text or "").strip().lower() if mark.tag in ("words", "rehearsal") else ""
+                    if mark.tag == "rehearsal" or text.startswith(("verse", "chorus", "refrain")):
+                        seen["word"] = "verse" if text.startswith("verse") else "chorus" if text.startswith(("chorus", "refrain")) else "mark"
+                    elif re.match(r"^(d\.\s*[cs]\.|to coda|fine\b|\(fine\))", text):
+                        seen.setdefault("jumps", []).append((mark.text or "").strip())
             if el.tag == "attributes":
                 divisions = int(el.findtext("divisions") or divisions)
                 beats = int(el.findtext("time/beats") or beats)
@@ -368,6 +412,9 @@ def leadsheet(xml: bytes) -> dict | None:
                 tied = starts_tie
         bars.append(chords)
         breaks.add(len(notes))
+        seen.update(chords=chords, length=round(4.0 * beats / beat_type, 4), sounded=round(seen.pop("end") / divisions, 4),
+                    implicit=measure.get("implicit") == "yes")
+        measures.append(seen)
     sounding = [n for n, _ in notes if n]
     if len(sounding) < MIN_NOTES or not title:
         return None
@@ -383,18 +430,39 @@ def leadsheet(xml: bytes) -> dict | None:
     level = 2 if len(sounding) <= 70 and span <= 9 else 3 if len(sounding) <= 130 else 4
     # rests shorter than a beat do not end a phrase: join them to the note before
     joined: list = []
+    place: list[int] = []               # where each note went
     for pitch, length in notes:
         if pitch is None and length < 1.0 and joined and joined[-1][0] is not None:
             joined[-1][1] = round(joined[-1][1] + length, 3)
         else:
             joined.append([pitch, length])
-    return {
+        place.append(len(joined) - 1)
+    open_ending = None                  # a first ending lasts until its repeat sign, also where the bracket is printed shorter
+    for k, seen in enumerate(measures):
+        if 1 in seen.get("ending", []) and open_ending is None:
+            open_ending = k
+        if seen.get("backward") and open_ending is not None:
+            for between in measures[open_ending:k + 1]:
+                between.setdefault("ending", [1])
+        if seen.get("backward") or 1 not in seen.get("ending", [1]):
+            open_ending = None
+    for k, seen in enumerate(measures):
+        first = seen.pop("first")
+        seen["notes"] = place[first] if first < len(place) else len(joined)
+        if (seen.pop("implicit") or seen["sounded"] < seen["length"] - 1e-6) and k == 0:
+            seen["pickup"] = True
+    piece = {
         "title": title, "tradition": "jazz", "mode": tonic + ("min" if mode == "minor" else ""), "form": "lead sheet with melody",
         "meter": f"{beats}/{beat_type}", "composer": composer, "level": level, "tuning": None,
         "source": "OpenEWLD (former Wikifonia)", "licence": "private use; copyright status varies by piece",
         "key": tonic + ("min" if mode == "minor" else ""), "notes": joined, "theory": {}, "phrases": cut_phrases(joined, set()),
         "changes": [{"label": "", "bars": filled}] if filled else [], "bars": len(filled),
     }
+    from . import outline_jazz
+    made = outline_jazz.melody(piece, measures)     # the form: what the print marks, then what the melody and chords repeat
+    if made:
+        piece["outline"] = made
+    return piece
 
 
 def leadsheets(zip_path: Path):
@@ -728,6 +796,10 @@ def build(source: Path = SOURCE, out: Path = OUT) -> dict:
                     entry["bars"] = piece.get("bars", 0)
                 if piece.get("checked"):
                     entry["checked"] = piece["checked"]["grade"]
+                if piece["tradition"] == "jazz" and piece.get("outline"):      # the form as players name it, to search by
+                    entry["structure"] = "12-bar blues" if piece["outline"].get("blues") else piece["outline"]["form"]
+                    if piece["outline"]["bars"] != entry.get("bars"):
+                        entry["played_bars"] = piece["outline"]["bars"]
                 if piece["tuning"] and sounding:
                     entry["low"], entry["high"] = min(sounding), max(sounding)
                 index.append(entry)
@@ -741,13 +813,18 @@ def build(source: Path = SOURCE, out: Path = OUT) -> dict:
     if chant.exists():
         write("chant", chant_pieces(chant))
     jazz = source / "jazz"
+    standards = list(jazz_changes(jazz / "JazzStandards.json")) if (jazz / "JazzStandards.json").exists() else []
+    sheets = list(leadsheets(jazz / "OpenEWLD.zip")) if (jazz / "OpenEWLD.zip").exists() else []
+    if standards and sheets:        # the same tune as changes and as a lead sheet: each outline names the other
+        from . import outline_jazz
+        outline_jazz.link(standards, sheets)
     if (jazz / "JazzStandards.json").exists():
-        write("jazz", jazz_changes(jazz / "JazzStandards.json"))
+        write("jazz", standards)
         from . import harmony       # what follows what, counted over these tunes
-        stats = harmony.statistics(list(jazz_changes(jazz / "JazzStandards.json")))
+        stats = harmony.statistics(standards)
         (out / "harmony.json").write_text(json.dumps(stats, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
     if (jazz / "OpenEWLD.zip").exists():
-        write("jazz-melodies", leadsheets(jazz / "OpenEWLD.zip"))
+        write("jazz-melodies", sheets)
     if any((source / relative).exists() for relative, *_ in SCORES) or (source / "wyschnegradsky" / "preludes.json").exists():
         write("scores", scores(source))
     (out / "index.json").write_text(json.dumps(index, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")

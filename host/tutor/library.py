@@ -61,9 +61,12 @@ class Library:
         return sorted(seen.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
 
     def search(self, tradition: str | None = None, mode: str | None = None, form: str | None = None, level: int | None = None,
-               text: str | None = None, max_notes: int | None = None) -> list[dict]:
-        """Matching entries, easiest and shortest first."""
+               text: str | None = None, max_notes: int | None = None, bars: int | None = None) -> list[dict]:
+        """Matching entries, easiest and shortest first. `form` is looked for in the piece's form and, for
+        jazz tunes, in the form of its outline (`structure`): letters such as "AABA" must be the whole
+        form, a word such as "blues" a part of it. `bars`: the length of the form."""
         want_mode, want_form, want_text = (_plain(v) if v else None for v in (mode, form, text))
+        letters = bool(want_form) and re.fullmatch(r"[a-h]{1,12}", want_form.replace(" ", "")) is not None
         found = []
         for e in self.index:
             if tradition and e["tradition"] != tradition:
@@ -74,7 +77,10 @@ class Library:
                 continue
             if want_mode and want_mode not in _plain(e["mode"]):
                 continue
-            if want_form and want_form not in _plain(e["form"]):
+            if want_form and want_form not in _plain(e["form"]) and not (
+                    want_form.replace(" ", "") == _plain(e.get("structure", "")) if letters else want_form in _plain(e.get("structure", ""))):
+                continue
+            if bars and bars not in (e.get("bars"), e.get("played_bars")):
                 continue
             if want_text and want_text not in _plain(" ".join((e["title"], e["mode"], e["form"], e.get("composer", "")))):
                 continue

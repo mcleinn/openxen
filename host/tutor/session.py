@@ -1403,13 +1403,69 @@ class Tutor:
         note names: guessing a key would move roots by a comma in the wrong places."""
         return lib.parse_key(piece.get("key", ""))
 
+    @staticmethod
+    def _is_blues(piece: dict) -> bool:
+        """A blues by its title, its twelve bars, or its changes (the outline's rule, outline_jazz.is_blues)."""
+        return "blues" in piece["title"].lower() or piece.get("bars") == 12 or bool((piece.get("outline") or {}).get("blues"))
+
+    def _tune_section(self, piece: dict, section) -> dict:
+        """A section of a jazz tune's outline, by letter (A, A2, bridge ...) or number."""
+        from . import outline_jazz
+        if not piece.get("outline"):
+            raise TutorError("this tune has no outline (rebuild the library: python -m tutor.library_build); give phrase instead")
+        try:
+            return outline_jazz.find_section(piece["outline"], section)
+        except ValueError as e:
+            raise TutorError(str(e)) from None
+
+    @staticmethod
+    def _tune_bars(piece: dict, sec: dict) -> list[list[str]]:
+        """The chord symbols of a section of a tune's outline, bar by bar."""
+        if "chords" in sec:                 # a lead sheet: its sections point into the printed bars
+            printed = piece["changes"][0]["bars"] if piece.get("changes") else []
+            return [printed[i] for a, z in sec["chords"] for i in range(a, z + 1) if 0 <= i < len(printed)]
+        played = [bar for s in piece["changes"] for bar in s["bars"]]
+        return played[sec["bars"][0] - 1:sec["bars"][1]]
+
+    @staticmethod
+    def _section_told(piece: dict, sec: dict) -> dict:
+        """What to say about a section of a tune that is handed out."""
+        from . import outline_jazz
+        made = piece["outline"]
+        told = {"section": f"{sec['n']} ({sec['label']}), bars {sec['bars'][0]}-{sec['bars'][1]}",
+                "of": f"{len(made['sections'])} sections; {outline_jazz.form_words(made)}"}
+        again = [s for s in made["sections"] if s is not sec and s["label"] == sec["label"]]
+        if again:
+            told["comes_again"] = ", ".join(f"bars {s['bars'][0]}-{s['bars'][1]}" + (" (another ending)" if (s.get("like") or {}).get("kind") == "ending" else "")
+                                            for s in again)
+        return told
+
+    def _tune_changes(self, piece_id: str, section, voicing: str) -> tuple[list[dict], str]:
+        """Chord steps of a tune of the library for improvise: one section of its outline, or the whole form."""
+        piece = self.music.piece(piece_id)
+        if piece is None or not piece.get("changes"):
+            raise TutorError(f"there is no tune '{piece_id}' with chord changes in the library; ids come from library search (tradition jazz)")
+        if voicing not in ("full", "shell", "guide", "root"):
+            raise TutorError("voicing must be one of: full, shell (root, third, seventh), guide (third and seventh), root")
+        if section is not None:
+            sec = self._tune_section(piece, section)
+            bars = self._tune_bars(piece, sec)
+            told = f"{piece['title']}, section {sec['n']} ({sec['label']}), bars {sec['bars'][0]}-{sec['bars'][1]}"
+        else:
+            bars = [bar for s in piece["changes"] for bar in s["bars"]]
+            told = f"{piece['title']}, the whole form ({len(bars)} bars)"
+        steps = self._changes_steps(piece, bars, voicing, "auto", False)[0]
+        if not steps:
+            raise TutorError("this section has no chord symbols")
+        return steps, told
+
     def _changes_steps(self, piece: dict, bars: list[list[str]], voicing: str, sevenths: str, plain_roots: bool) -> tuple[list[dict], list[str]]:
         kb = self.keyboard
         t = kb.tuning
         low, high = kb.range()
         key = self._piece_key(piece)
         beats_per_bar = float((piece.get("meter") or "4/4").split("/")[0] or 4)
-        blues = "blues" in piece["title"].lower() or piece.get("bars") == 12
+        blues = self._is_blues(piece)
         harmonic = sevenths == "harmonic" or (sevenths == "auto" and blues)
         steps: list[dict] = []
         left_out: list[str] = []
@@ -2037,7 +2093,7 @@ class Tutor:
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
                 sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half", nearest: bool = False, section: str | int | None = None) -> dict:
+                rhythm: str = "half", nearest: bool = False, section: str | int | None = None, bars: int | None = None) -> dict:
         """Teaching material. overview | search | get | raga | pattern | fifths | comma."""
         action = action.strip().lower()
         kb = self.keyboard
@@ -2046,13 +2102,14 @@ class Tutor:
             return self._library_overview()
 
         if action == "search":
-            found = self.music.search(tradition, mode, form, level, text)
+            found = self.music.search(tradition, mode, form, level, text, bars=bars)
             if tradition == "makam" and t.edo != 53:
                 return {"matches": len(found), "note": "Makam pieces are written in 53 steps per octave; switch the tuning to 53 to play them."}
             shown = found[:max(1, min(limit, 30))]
             return {"matches": len(found), "pieces": [
                 {"id": e["id"], "title": e["title"], "mode": e["mode"], "form": e["form"], "meter": e["meter"], "level": e["level"],
                  "notes": e["notes"], "phrases": e["phrases"], **({"bars": e["bars"]} if e.get("bars") else {}),
+                 **({"structure": e["structure"]} if e.get("structure") else {}),
                  **({"checked": e["checked"]} if e.get("checked") else {})} for e in shown],
                 "note": "easiest and shortest first" + ("; narrow the search for others" if len(found) > len(shown) else "")}
 
@@ -2098,17 +2155,34 @@ class Tutor:
                 head["key"] = piece.get("key") or "not given"
                 head["form"] = [{"section": n + 1, "label": s["label"], "bars": len(s["bars"]),
                                  "changes": " | ".join(" ".join(bar) for bar in s["bars"])} for n, s in enumerate(changes)]
-            if want_changes and phrase is not None:
-                if not 1 <= phrase <= len(changes):
-                    raise TutorError(f"phrase (the section) must be between 1 and {len(changes)}")
+            sec = self._tune_section(piece, section) if section is not None and changes else None
+            if sec:
+                following = (f"Next: section {sec['n'] + 1}." if sec["n"] < len(piece["outline"]["sections"]) else "This is the last section.")
+            if sec and not want_changes:            # the melody of a section of a lead sheet
+                chosen = [(pitches[i], piece["notes"][i][1]) for a, z in sec.get("notes", []) for i in range(a, z + 1) if pitches[i] is not None]
+                steps, missing = self._as_steps([p for p, _ in chosen], [beats for _, beats in chosen])
+                head.pop("form")
+                head.update({**self._section_told(piece, sec), "part": "melody", "steps": steps})
+                if missing:
+                    head["not_on_this_keyboard"] = missing
+                head["note"] = ("The melody of this section; pass steps to demo (lengths in 'beats'), then to run_exercise. part=changes gives its "
+                                "chords. Sections are cut at whole bars, so a pickup stands at the end of the section before. " + following)
+                return head
+            if want_changes and (phrase is not None or sec):
                 if voicing not in ("full", "shell", "guide", "root"):
                     raise TutorError("voicing must be one of: full, shell (root, third, seventh), guide (third and seventh), root")
-                last = min(len(changes), phrase + max(1, min(phrases, 4)) - 1)
-                bars = [bar for s in changes[phrase - 1:last] for bar in s["bars"]]
+                if sec:
+                    bars = self._tune_bars(piece, sec)
+                    last, given = len(changes), self._section_told(piece, sec)
+                else:
+                    if not 1 <= phrase <= len(changes):
+                        raise TutorError(f"phrase (the section) must be between 1 and {len(changes)}")
+                    last = min(len(changes), phrase + max(1, min(phrases, 4)) - 1)
+                    bars = [bar for s in changes[phrase - 1:last] for bar in s["bars"]]
+                    given = {"section": phrase if last == phrase else f"{phrase}-{last}", "of": len(changes)}
                 steps, left_out = self._changes_steps(piece, bars, voicing, sevenths, plain_roots)
                 head.pop("form")
-                head.update({"section": phrase if last == phrase else f"{phrase}-{last}", "of": len(changes), "voicing": voicing,
-                             "steps": steps})
+                head.update({**given, "voicing": voicing, "steps": steps})
                 comma = t.steps_for(9 / 8) - t.steps_for(10 / 9)
                 if not self._piece_key(piece):
                     head["key"] = "not given: chords are on their plain note names"
@@ -2116,7 +2190,7 @@ class Tutor:
                     head["tuning_note"] = ("Roots follow the key's pure scale with the tonic fixed, so some chords sit one step (a comma) "
                                            "off the plain note name, e.g. the minor chord on the second degree a comma low. plain_roots=true "
                                            "gives the plain names instead; the two versions are worth comparing by ear.")
-                blues = "blues" in piece["title"].lower() or piece.get("bars") == 12
+                blues = self._is_blues(piece)
                 if t.has("harmonic7"):
                     head["sevenths"] = ("dominant chords with the harmonic seventh (4:5:6:7), the calm blues and barbershop sound; "
                                         "sevenths=plain gives the ordinary one" if (sevenths == "harmonic" or (sevenths == "auto" and blues))
@@ -2125,17 +2199,23 @@ class Tutor:
                 if left_out:
                     head["left_out"] = left_out[:8]
                 head["note"] = ("Each step is one chord with its length in beats; pass steps to demo, fingering and run_exercise. Extensions "
-                                "beyond the seventh are left out. " + (f"Next: section {last + 1}." if last < len(changes) else "This is the last section."))
+                                "beyond the seventh are left out. " + (following + " improvise with id and section loops this section." if sec else
+                                                                       f"Next: section {last + 1}." if last < len(changes) else "This is the last section."))
                 return head
             spans = piece["phrases"]
+            by_section = ""
+            if changes and piece.get("outline"):        # a jazz tune: its form, sections, what repeats, practice order
+                from . import outline_jazz
+                head["outline"] = outline_jazz.overview(piece["outline"])
+                by_section = " By section of the outline: " + outline_jazz.HOW
             if phrase is None and not spans:
-                head["note"] = "Changes only, no melody. get with phrase=N gives section N as chord steps (voicing: full, shell, guide, root)."
+                head["note"] = "Changes only, no melody. get with phrase=N gives section N as chord steps (voicing: full, shell, guide, root)." + by_section
                 return head
             if phrase is None:
                 head["phrase_count"] = len(spans)
                 head["phrases"] = [{"phrase": n + 1, "notes": b - a + 1, "starts": t.label(pitches[a]), "ends": t.label(pitches[b])}
                                    for n, (a, b) in enumerate(spans[:24])]
-                head["note"] = "get with phrase=N (and phrases=how many in a row) gives the notes as steps. Teach one phrase at a time."
+                head["note"] = "get with phrase=N (and phrases=how many in a row) gives the notes as steps. Teach one phrase at a time." + by_section
                 return head
             if not 1 <= phrase <= len(spans):
                 raise TutorError(f"phrase must be between 1 and {len(spans)}")
@@ -3138,12 +3218,14 @@ class Tutor:
 
     # --- improvising ---
 
-    def improvise(self, changes: list[dict], rule: str = "free", allowed: list[str] | None = None, tempo_bpm: float = 90,
+    def improvise(self, changes: list[dict] | None = None, rule: str = "free", allowed: list[str] | None = None, tempo_bpm: float = 90,
                   backing: str = "chords", count_in: int = 4, choruses: int = 1, lights: bool = True,
-                  click: bool = True, sound: str = "click", progress: Progress | None = None) -> dict:
+                  click: bool = True, sound: str = "click", progress: Progress | None = None,
+                  id: str | None = None, section: str | int | None = None, voicing: str = "full") -> dict:
         """The player improvises over chord changes while the server keeps time: it sounds
         a backing, lights the notes of the current chord, records what is played against
-        which chord, and checks one simple rule."""
+        which chord, and checks one simple rule. The changes are given as steps, or taken
+        from a tune of the library (`id`): one `section` of its outline, or the whole form."""
         self._need_player("improvise")
         kb = self.keyboard
         t = kb.tuning
@@ -3153,8 +3235,13 @@ class Tutor:
             raise TutorError(f"rule must be one of: {', '.join(rules)}")
         if backing not in ("chords", "roots", "drone", "none"):
             raise TutorError("backing must be one of: chords, roots, drone, none")
+        tune = None
+        if id:
+            if changes:
+                raise TutorError("give either changes or id (with section), not both")
+            changes, tune = self._tune_changes(id, section, voicing)
         if not changes:
-            raise TutorError("changes is empty; give chord steps, for example a section from the library")
+            raise TutorError("changes is empty; give chord steps, for example a section from the library, or id and section of a tune")
         if not 30 <= tempo_bpm <= 240:
             raise TutorError("tempo_bpm must be between 30 and 240")
         if rule == "only" and not allowed:
@@ -3298,6 +3385,8 @@ class Tutor:
             "notes_played": notes_total, "chords": len(form), "chords_left_silent": silent,
             "chord_tone_share_percent": round(100 * tone_total / notes_total) if notes_total else 0,
         }
+        if tune:
+            out["played_on"] = tune + (f", {choruses} times" if choruses > 1 else "")
         if rule in ("chord_tone_first", "guide_tone_first"):
             out["rule_met"] = f"{first_ok} of {first_seen} chords started on a {'third or seventh' if rule == 'guide_tone_first' else 'chord tone'}"
         elif rule in ("only", "chord_tones"):

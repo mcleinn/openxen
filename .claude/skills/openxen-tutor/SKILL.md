@@ -458,6 +458,36 @@ chord steps; `voicing` chooses how much of each chord: `root`, `guide` (third an
 in, lights the notes of the sounding chord and tells you afterwards what was played on each
 chord.
 
+**Teach a tune by its form.** `library get` with the id only gives the tune's `outline`: the
+form ("32 bars, AABA", "12-bar blues"), each section with its bars, what repeats ("as section
+1, another ending", "section 1 a half step higher"), key areas, a practice order. Read it
+before the first chord, and tell the player the form first: a player who knows that 24 of
+the 32 bars are the same eight has a quarter of the work.
+- Fetch by section, not by rows of bars: `get` with `section` = "A", "bridge" (or "B"), "A2"
+  (the second A, where the ending differs) or a number, with `voicing` as usual. The answer
+  says where the same section comes again.
+- Follow the practice order or adapt it: the A changes first (roots, then shells, then
+  guide tones), then the bridge, then the join from the last bars back to the top (the
+  turnaround), then the whole form. Where the bridge is the A moved ("a half step higher")
+  or a sequence ("each a fourth higher"), say so: on this keyboard it is the same hand
+  shapes started on other keys.
+- Loop one section to improvise on it: `improvise` with `id`, `section` and `choruses`
+  (the bridge four times) instead of `changes`; then the whole form (`id` alone, if it fits
+  in the time). Keep the rule of the course step you are on.
+- Key areas ("Bb major, G minor") say which scale fits where: use them for step 10 of the
+  course, one area at a time.
+- Find tunes by form: `library search` with `form` "blues", "AABA", "ABAC" or `bars` 12,
+  16, 32; results show the form as `structure`. A 16-bar or a blues tune before a 32-bar one.
+- Say bar numbers as the form is played (bar 17 is the bridge of an AABA), not as a printed
+  page with repeat signs counts them.
+- How far to trust it: for most standards the form is the source's own labelling; `made`
+  says when letters were moved or computed here. For lead sheets the letters are always
+  computed from melody and chords. Present those as "it looks like A A B A" and go with the
+  player's ear, or a recording, where they differ. The key areas and the practice order are
+  suggestions in every case. Where `same_tune` names the lead sheet of a standard (or the
+  changes of a lead sheet), use both: melody from one, section by section, changes from the
+  other; if it says the forms differ, say that the two sources print the tune differently.
+
 Improvising is learned by doing little, often, with one task at a time. A course, in this
 order; move on when a step is easy, go back when it is not. Always: say the task and the
 tempo, `demo` or play an example idea in words, then `improvise`, then respond to the music
@@ -470,7 +500,8 @@ before the rule (one thing that worked, one thing to try). Rests are part of a s
 3. **Three notes over a drone** (root, fourth, fifth, or the first three notes of a scale).
 4. **A five-note scale** over one chord: the minor pentatonic (`theory`/`library pattern`
    give the notes). Ask for phrases that end on the root or the fifth.
-5. **The blues form.** `library` search "blues" at level 1 (C-Jam Blues, Blue Monk). First
+5. **The blues form.** `library` search with `form: "blues"` at level 1 (C-Jam Blues, Blue
+   Monk); the outline gives it as three lines of four bars. First
    only the root of each chord on the first beat (`voicing: root`, `run_exercise`), then
    `improvise` with `rule: chord_tone_first`.
 6. **Chord tones.** Arpeggiate each chord (`rule: chord_tones`), then free playing that
@@ -482,8 +513,9 @@ before the rule (one thing that worked, one thing to try). Rests are part of a s
 9. **Guide tones first, then free** (`rule: guide_tone_first`).
 10. **The scale of the key over a two-five-one**, landing on the third of the last chord.
 11. **Approach notes:** reach a chord tone from the key just below or above it.
-12. **A tune.** A level-1 or level-2 standard, section by section: roots, shells, guide
-    tones, then a chorus of solo. For lead sheets teach the melody first (`part: melody`).
+12. **A tune.** A level-1 or level-2 standard, by its form (see above), section by section:
+    roots, shells, guide tones, then a solo on one section looped, then a chorus. For lead
+    sheets teach the melody first (`part: melody`, by `section`).
 
 What is different on this keyboard, and worth saying when it comes up:
 - A chord quality is one hand shape on every root, so "all twelve keys" is not the work
