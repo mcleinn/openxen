@@ -560,7 +560,7 @@ def test_real_scores_in_bars_come_back_note_for_note(relative, edo):
 
 
 def test_prelude_in_ups_and_downs_uses_xenharmlib_names():
-    """Both pianos at sounding pitch, named as xenharmlib names the 24 notes: sharps, and an arrow for a quarter-tone."""
+    """One quarter-tone instrument on two staves, named as xenharmlib names the 24 notes: sharps, and an arrow for a quarter-tone."""
     from tutor.scores import musicxml as mx
     assert [mx.updown_note(96 + s).name() for s in (0, 2)] == ["C4", "C#4"]
     up, down = mx.updown_note(97), mx.updown_note(99)
@@ -571,5 +571,5 @@ def test_prelude_in_ups_and_downs_uses_xenharmlib_names():
         {"onset": 0, "dur": 2, "step": 99, "piano": 2, "bar": 1, "source": "engraving", "also": [{"step": 101, "source": "recording"}]}]}
     score = mx.prelude_score(prelude, updown=True)
     xml = mx.to_musicxml(score)
-    assert "ups and downs" in score.parts[1].name and "<accidental>natural-down</accidental>" in xml and "<alter>-0.5</alter>" in xml
+    assert [p.name for p in score.parts] == ["Quarter-tone piano"] and {e.staff for e in score.events} <= {0, 1} and "<accidental>natural-down</accidental>" in xml and "<alter>-0.5</alter>" in xml
     assert "<accidental>sharp</accidental>" in xml and "^D4" in xml          # the other reading is named the same way

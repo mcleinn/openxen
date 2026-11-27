@@ -385,7 +385,7 @@ print(pages, score.warnings)
 
 ## The preludes in ups-and-downs notation
 
-`python -m tutor.scores.musicxml --all --updown` also writes every prelude with both pianos at sounding
+`python -m tutor.scores.musicxml --all --updown` also writes every prelude as one quarter-tone instrument on two staves (both pianos together, as in the composer's reduction op. 22a), at sounding
 pitch, each note named as xenharmlib's `UpDownNotation` names it in 24 notes per octave (`updown_note`,
 through `theory.Tuning.name`): C, ^C, C#, vD, D ... An arrow is one step (a quarter-tone), a sharp two.
 xenharmlib's first name uses sharps only and never more than one arrow, so the only signs needed are

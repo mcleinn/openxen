@@ -968,18 +968,19 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
     bars, starts = prelude_bars(prelude)
     total = bars[-1].start + bars[-1].length
     sounding = sounding or updown
-    second = ("Piano II (sounding pitch, ups and downs)" if updown else "Piano II (sounding pitch, quarter-tone signs)" if sounding
-              else "Piano II (sounds a quarter-tone lower)")
-    score = Score(prelude.get("title") or f"Prelude {prelude['number']}",
-                  [Part("Piano I"), Part(second, transpose=0.0 if sounding else -0.5)], bars, [], composer="Ivan Wyschnegradsky, 24 Préludes op. 22")
+    second = "Piano II (sounding pitch, quarter-tone signs)" if sounding else "Piano II (sounds a quarter-tone lower)"
+    # in ups and downs the music is one quarter-tone instrument on two staves, as in the composer's own reduction (op. 22a)
+    parts = [Part("Quarter-tone piano")] if updown else [Part("Piano I"), Part(second, transpose=0.0 if sounding else -0.5)]
+    score = Score(prelude.get("title") or f"Prelude {prelude['number']}", parts, bars, [], composer="Ivan Wyschnegradsky, 24 Préludes op. 22")
     bar_starts = [b.start for b in bars]
-    for piano in (1, 2):
-        raw = sorted((n for n in prelude["notes"] if n["piano"] == piano and float(n["dur"]) > 0), key=lambda n: (n["onset"], n["step"]))
-        timed = [(frac(n["onset"]), frac(n["onset"]) + frac(n["dur"]), (int(n["step"]) + piano - 1) // 2) for n in raw]
+    for piano in ((0,) if updown else (1, 2)):          # 0: both pianos together
+        raw = sorted((n for n in prelude["notes"] if piano in (0, n["piano"]) and float(n["dur"]) > 0), key=lambda n: (n["onset"], n["step"]))
+        timed = [(frac(n["onset"]), frac(n["onset"]) + frac(n["dur"]), (int(n["step"]) + 1) // 2 if updown else (int(n["step"]) + piano - 1) // 2)
+                 for n in raw]
         staves = choose_staves(timed)
         chords: dict[tuple, list] = {}
         for n, (onset, end, key), staff in zip(raw, timed, staves):
-            if (int(n["step"]) + piano - 1) % 2:
+            if piano and (int(n["step"]) + piano - 1) % 2:
                 score.warnings.append(f"piano {piano}, step {n['step']} at {onset}: not a key of this piano, left out")
                 continue
             chords.setdefault((staff, onset), []).append((end - onset, key, n))
@@ -992,11 +993,13 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
             by_length: dict[Fraction, list[Note]] = {}
             used: set[tuple] = set()
             for dur, key, n in members:
+                if updown:
+                    key = int(n["step"])            # two notes a quarter-tone apart share a written key number: tell them apart
                 if (dur, key) in used:
                     score.warnings.append(f"piano {piano}, {key_name(key)} at {onset}: the same key twice with the same length, written once")
                     continue
                 used.add((dur, key))
-                letter, accidental, octave = spelled[key]
+                letter, accidental, octave = spelled[(key + 1) // 2 if updown else key]
                 note = Note(letter, octave, accidental)
                 if updown:
                     note = updown_note(int(n["step"]))
@@ -1014,8 +1017,8 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
                     note.other_source = SOURCE_SHORT.get(other.get("source", ""), other.get("source", ""))
                 by_length.setdefault(dur, []).append(note)
             for dur, notes in by_length.items():
-                score.events.append(Event(2 * (piano - 1) + staff, onset, dur, notes))
-    marked = {(starts[u["bar"]], 2 * (int(u.get("piano", 1)) - 1)) for u in prelude.get("uncertain") or [] if u.get("bar") in starts}
+                score.events.append(Event(staff if updown else 2 * (piano - 1) + staff, onset, dur, notes))
+    marked = {(starts[u["bar"]], 0 if updown else 2 * (int(u.get("piano", 1)) - 1)) for u in prelude.get("uncertain") or [] if u.get("bar") in starts}
     marked |= {(starts[b], 0) for b in doubtful if b in starts}
     score.marks += [Mark(onset, staff, "?") for onset, staff in sorted(marked) if onset < total]
     tempi: dict[Fraction, list[str]] = {}
@@ -1184,8 +1187,7 @@ def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, lo
                 if mode == "sounding":
                     score.header[2] = "Piano II at sounding pitch (same letters as written, a quarter-tone lower). " + score.header[2]
                 if mode == "updown":
-                    score.header[1] = ("Both pianos at sounding pitch in ups-and-downs notation (xenharmlib's names for 24 notes per octave): "
-                                       "an arrow is a quarter-tone, a sharp a semitone; sharps only.")
+                    score.header[1] = "Both pianos as one quarter-tone instrument, in xenharmlib's ups and downs: arrow = quarter-tone, sharp = semitone."
                 base = path.parent / "sheets" / (f"prelude_{number:02d}" + (f"_{mode}" if mode else ""))
                 pages = write_sheet(score, base, pdf, staff_mm=5.0)
                 parts.append(base.with_name(base.name + ".pdf"))
