@@ -451,11 +451,15 @@ SCORE_CHECKS = {
                                    "29 % hidden behind other notes, 2 contradicted); rhythm checked by bar sums only; the last seven bars rest on the image alone",
                             "listen": "Woyten, \"Ephemeral Happiness\" (the composer's own recording)"},
 }
-PRELUDES_WELL = {3, 7, 14, 16, 20, 22, 24}     # 3: every bar proofread against engraving and print (PROOF_P3.md)
-PRELUDES_UNVERIFIED = {2, 4, 6, 10, 23}
-PRELUDES_DOUBTFUL = {3: [18, 20, 28, 38, 43, 48, 50], 5: [44, 45], 7: [18], 9: [23, 28, 29], 10: [1], 11: [8], 17: [19, 21], 21: [22], 23: [24]}
+PRELUDES_WELL = {1, 3, 4, 10}       # every note read against the composer's two-staff edition (Belaieff 418): PROOF_418_P*.md
+PRELUDES_UNVERIFIED = set()        # every prelude has at least the check against recordings
+PRELUDES_DOUBTFUL = {1: [6, 23, 26], 2: [3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30, 31], 3: [24, 25, 26, 47, 48, 49],
+                     5: [44, 45], 6: [16, 17, 18, 19, 20], 7: [18], 9: [23, 28, 29], 11: [8], 17: [19, 21], 21: [22],
+                     23: [5, 6, 7, 8, 9, 12, 13, 23, 24, 29, 30, 31]}      # file numbering; renumbered below
 PRELUDES_HOW = ("read from Ueli Raz's engraving (a PDF), repaired, then checked by ear against his own rendering and against "
                 "the recording by Sylvaine Billier and Martine Joste")
+PRELUDES_PROOFREAD = ("proofread note by note (pitch, rhythm, hands) against the composer's own edition for one quarter-tone "
+                      "instrument (Belaieff 418), and checked by ear against recordings")
 PRELUDES_LISTEN = "Sylvaine Billier and Martine Joste, 24 Preludes op. 22 (col legno; played there on two pianos tuned a quarter-tone apart)"
 
 
@@ -597,7 +601,8 @@ def wyschnegradsky(path: Path):
             "source": "read from Ueli Raz's engraving of the Belaieff edition, checked against his rendering and against recordings; "
                       "not proofread as a whole", "licence": "private use",
             "notes": [], "theory": {}, "phrases": [], "score": out, "bars": len(out),
-            "checked": checked(grade, PRELUDES_HOW, PRELUDES_LISTEN, doubtful), "two_hands": two_hands,
+            "checked": checked(grade, PRELUDES_PROOFREAD if prelude.get("hands_from") else PRELUDES_HOW, PRELUDES_LISTEN, doubtful),
+            "two_hands": two_hands,
         }
 
 

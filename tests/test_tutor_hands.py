@@ -178,12 +178,12 @@ def test_real_preludes_keep_every_printed_staff_in_library_and_sheet():
                    for n, staff in zip(notes, staves) if n.get("hand") or n.get("staff")), prelude["number"]
         # the sheet for one player and the library hold the same division: steps per staff
         score = mx.prelude_score(prelude, updown=True)
-        sheet = [sum(len(e.notes) for e in score.events if e.staff == s) for s in (0, 1)]
+        sheet = [sum(len(e.notes) for e in score.events if e.staff == s and not e.grace) for s in (0, 1)]     # a grace note may be drawn on the staff of the note it leads to
         total = score.bars[-1].start + score.bars[-1].length
         used, per_staff = set(), [0, 0]
         for n, staff in zip(notes, staves):                      # as the sheet counts: one note per length and step at a moment
             key = (staff, n["onset"], n["dur"], n["step"])
-            if n["onset"] < total and key not in used:
+            if n["onset"] < total and key not in used and not n.get("grace"):
                 used.add(key)
                 per_staff[staff] += 1
         assert sheet == per_staff, prelude["number"]

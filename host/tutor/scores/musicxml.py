@@ -1118,8 +1118,17 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
             if n.get("grace"):
                 later = bisect_left(mains[staff], group_end[(staff, onset)])
                 if later == len(mains[staff]):
-                    score.warnings.append(f"piano {piano}: grace note at {onset} has no note after it, left out")
-                    continue
+                    # nothing follows on its own staff: the group leads to a note of the other hand (the end of Prelude I).
+                    # It is drawn before that note, on that note's staff.
+                    other = 1 - staff
+                    later = bisect_left(mains[other], group_end[(staff, onset)])
+                    if later == len(mains[other]):
+                        # four-staff sheet: it leads to a note of the other piano; shown as the short note the file holds
+                        score.warnings.append(f"piano {piano}: grace note at {onset} has no note after it in this piano, drawn as an ordinary short note")
+                        chords.setdefault((staff, onset), []).append((end - onset, key, n))
+                        continue
+                    score.warnings.append(f"piano {piano}: grace note at {onset} leads to a note on the other staff and is drawn there")
+                    staff = other
                 chords.setdefault((staff, mains[staff][later], "grace", onset), []).append((Fraction(0), key, n))
                 continue
             chords.setdefault((staff, onset), []).append((end - onset, key, n))

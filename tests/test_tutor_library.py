@@ -728,14 +728,14 @@ def test_two_piano_preludes_become_one_quarter_tone_instrument(tmp_path):
     assert piece["tuning"] == 24 and piece["composer"] == "Ivan Wyschnegradsky" and piece["level"] == 3
     # how far the transcription was checked travels with the piece: grade, what to listen to, what to say
     check = piece["checked"]
-    assert check["grade"] == "well checked" and "Billier" in check["listen_to"] and "recording" in check["say"] and "doubtful_bars" not in check
-    assert lib.Library(out).search(tradition="composition")[0]["checked"] == "well checked"
+    assert check["grade"] == "partly checked" and "Billier" in check["listen_to"] and "recording" in check["say"] and "doubtful_bars" not in check
+    assert lib.Library(out).search(tradition="composition")[0]["checked"] == "partly checked"
     t = Tutor(FakeXentool(sample_setup(24, (0, 1, 2, 3, 4))), library=lib.Library(out))
     try:
         assert t.library("get", id=piece["id"])["transcription"]["say"] == check["say"]
-        assert t.library("search", tradition="composition")["pieces"][0]["checked"] == "well checked"
+        assert t.library("search", tradition="composition")["pieces"][0]["checked"] == "partly checked"
         given = t.library("get", id=piece["id"], phrase=1)["transcription"]
-        assert given["grade"] == "well checked" and "doubtful_here" not in given
+        assert given["grade"] == "partly checked" and "doubtful_here" not in given
     finally:
         t.pump.stop()
     one, two = piece["score"]

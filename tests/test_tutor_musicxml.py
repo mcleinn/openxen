@@ -516,13 +516,16 @@ def test_real_preludes_come_back_note_for_note(sounding):
                                   for part, _, o, d, letter, octave, alter in back)
         # a grace note of the print (`grace`: a short real note before the beat in the file) is drawn as a grace note, outside the count of the bar
         want = collections.Counter({(n["piano"], mx.frac(n["onset"]), mx.frac(n["dur"]), n["step"]) for n in p["notes"] if not n.get("grace")})
-        assert got == want, (p["number"], list((want - got).items())[:3], list((got - want).items())[:3])
-        assert xml.count("<grace ") == sum(1 for n in p["notes"] if n.get("grace")), p["number"]
+        # ... except one that leads to a note of the other piano: on the four-staff sheet it stays the short note the file holds
+        plain = sum("ordinary short note" in w for w in score.warnings)
+        graces = collections.Counter({(n["piano"], mx.frac(n["onset"]), mx.frac(n["dur"]), n["step"]) for n in p["notes"] if n.get("grace")})
+        assert not want - got and sum((got - want).values()) == plain and not (got - want) - graces,             (p["number"], list((want - got).items())[:3], list((got - want).items())[:3])
+        assert xml.count("<grace ") == sum(graces.values()) - plain, p["number"]
         bars, _ = mx.prelude_bars(p)
         for part in read.values():
             assert [(str(b.number), b.start, b.length) for b in bars] == [(n, s, length) for n, s, length, _ in part]
             assert all(v == b.length for b, (_, _, _, voices) in zip(bars, part) for v in voices)
-        assert not [w for w in score.warnings if "same key twice" not in w], score.warnings
+        assert not [w for w in score.warnings if "same key twice" not in w and "ordinary short note" not in w], score.warnings
 
 
 @pytest.mark.parametrize("relative, edo", [("woyten16/dont_take_five.json", 16), ("woyten/final/ephemeral_happiness.json", 17)])
