@@ -173,7 +173,9 @@ def test_real_preludes_keep_every_printed_staff_in_library_and_sheet():
     assert len(pieces) == len(preludes)
     for prelude, piece in zip(preludes, pieces):
         notes, staves = mx.prelude_hands(prelude)
-        assert all(staff == {"upper": 0, "lower": 1}[n["staff"]] for n, staff in zip(notes, staves) if n.get("staff")), prelude["number"]
+        # the hand read from the composer's edition for one instrument (op. 22a) where the file has it, else the printed staff
+        assert all(staff == {"right": 0, "left": 1, "upper": 0, "lower": 1}[n.get("hand") or n["staff"]]
+                   for n, staff in zip(notes, staves) if n.get("hand") or n.get("staff")), prelude["number"]
         # the sheet for one player and the library hold the same division: steps per staff
         score = mx.prelude_score(prelude, updown=True)
         sheet = [sum(len(e.notes) for e in score.events if e.staff == s) for s in (0, 1)]

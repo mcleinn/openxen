@@ -573,3 +573,21 @@ def test_prelude_in_ups_and_downs_uses_xenharmlib_names():
     xml = mx.to_musicxml(score)
     assert [p.name for p in score.parts] == ["Quarter-tone piano"] and {e.staff for e in score.events} <= {0, 1} and "<accidental>natural-down</accidental>" in xml and "<alter>-0.5</alter>" in xml
     assert "<accidental>sharp</accidental>" in xml and "^D4" in xml          # the other reading is named the same way
+
+
+def test_hand_from_the_one_instrument_edition_goes_before_the_two_piano_staff():
+    """`hand` (read from the composer's two-staff edition op. 22a) decides the staff for one player; without it the
+    staff of the two-piano print does, and a note with neither follows the lines around it."""
+    prelude = {"number": 3, "bars": 1, "time": "4/4", "notes": [
+        {"onset": 0, "dur": 1, "step": 94, "piano": 1, "bar": 1, "staff": "upper", "hand": "left"},      # moved to the left hand
+        {"onset": 0, "dur": 1, "step": 70, "piano": 1, "bar": 1, "staff": "lower", "hand": "left"},
+        {"onset": 0, "dur": 1, "step": 105, "piano": 2, "bar": 1, "staff": "lower", "hand": "right"},
+        {"onset": 1, "dur": 1, "step": 120, "piano": 1, "bar": 1, "staff": "upper"},                      # no hand: the printed staff
+        {"onset": 1, "dur": 1, "step": 60, "piano": 2, "bar": 1, "staff": "lower"},
+        {"onset": 2, "dur": 1, "step": 122, "piano": 1, "bar": 1, "hand": "left"}]}                       # no staff: the hand alone
+    notes, staves = mx.prelude_hands(prelude)
+    assert [(n["step"], s) for n, s in zip(notes, staves)] == [(70, 1), (94, 1), (105, 0), (60, 1), (120, 0), (122, 1)]
+    score = mx.prelude_score(prelude, updown=True)
+    # the sheet for one player takes the same division: B3 of the upper staff is drawn on the lower one, E half-sharp 4 above
+    at_once = {(e.staff, n.letter, n.octave) for e in score.events if e.onset == 0 for n in e.notes}
+    assert (1, "B", 3) in at_once and (0, "E", 4) in at_once and (0, "B", 3) not in at_once

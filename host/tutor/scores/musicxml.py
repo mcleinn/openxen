@@ -1018,7 +1018,9 @@ def prelude_seconds(prelude: dict):
 
 def prelude_hands(prelude: dict, model=None) -> tuple[list[dict], list[int]]:
     """The sounding notes of a prelude (both pianos, in order of onset and pitch) and the staff of each
-    in the layout for one player: 0 = upper staff = right hand, 1 = lower staff = left hand. A note
+    in the layout for one player: 0 = upper staff = right hand, 1 = lower staff = left hand. Where the
+    file has the hand from the composer's own edition for one instrument (`hand`: "right" or "left",
+    read from op. 22a on two staves), that is taken. Otherwise a note
     stays on the staff it is printed on (`staff`: "upper" or "lower" within its piano): the upper
     staves of both pianos become the upper staff, the lower staves the lower one. Notes without `staff`
     (bars typed in by hand) are placed by `hands.assign_hands` with all the others held fixed, so that
@@ -1026,7 +1028,7 @@ def prelude_hands(prelude: dict, model=None) -> tuple[list[dict], list[int]]:
     quarter-tone steps). The library and the sheet both take the division from here."""
     from .hands import DEFAULT, assign_hands
     notes = sorted((n for n in prelude["notes"] if float(n["dur"]) > 0), key=lambda n: (n["onset"], n["step"]))
-    known = [{"upper": 0, "lower": 1}.get(n.get("staff")) for n in notes]
+    known = [{"right": 0, "left": 1}.get(n.get("hand"), {"upper": 0, "lower": 1}.get(n.get("staff"))) for n in notes]
     if None not in known:
         return notes, known
     seconds = prelude_seconds(prelude)
@@ -1305,8 +1307,9 @@ def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, lo
                 if mode == "sounding":
                     score.header[2] = "Piano II at sounding pitch (same letters as written, a quarter-tone lower). " + score.header[2]
                 if mode == "updown":
-                    score.header[1] = ("Both pianos as one quarter-tone instrument, each note on the staff it is printed on (upper = right hand); "
-                                       "ups and downs: arrow = quarter-tone, sharp = semitone.")
+                    hands = ("hands as in the composer's two-staff edition (Belaieff 418)" if prelude.get("hands_from")
+                             else "hands by the staves of the two-piano print, not yet the composer's two-staff layout")
+                    score.header[1] = f"One quarter-tone instrument, {hands}; ups and downs: arrow = quarter-tone, sharp = semitone."
                 base = path.parent / "sheets" / (f"prelude_{number:02d}" + (f"_{mode}" if mode else ""))
                 pages = write_sheet(score, base, pdf, staff_mm=5.0)
                 parts.append(base.with_name(base.name + ".pdf"))
