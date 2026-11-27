@@ -510,11 +510,14 @@ def test_real_preludes_come_back_note_for_note(sounding):
         pytest.skip("reference/music/wyschnegradsky/preludes.json is not there")
     for p in preludes:
         score = mx.prelude_score(p, sounding=sounding)
-        back, read = read_back(mx.to_musicxml(score))
+        xml = mx.to_musicxml(score)
+        back, read = read_back(xml)
         got = collections.Counter((part + 1, o, d, round(2 * (12 * octave + SEMITONES[letter] + alter)) - (0 if sounding else part))
                                   for part, _, o, d, letter, octave, alter in back)
-        want = collections.Counter({(n["piano"], mx.frac(n["onset"]), mx.frac(n["dur"]), n["step"]) for n in p["notes"]})
+        # a grace note of the print (`grace`: a short real note before the beat in the file) is drawn as a grace note, outside the count of the bar
+        want = collections.Counter({(n["piano"], mx.frac(n["onset"]), mx.frac(n["dur"]), n["step"]) for n in p["notes"] if not n.get("grace")})
         assert got == want, (p["number"], list((want - got).items())[:3], list((got - want).items())[:3])
+        assert xml.count("<grace ") == sum(1 for n in p["notes"] if n.get("grace")), p["number"]
         bars, _ = mx.prelude_bars(p)
         for part in read.values():
             assert [(str(b.number), b.start, b.length) for b in bars] == [(n, s, length) for n, s, length, _ in part]
@@ -591,3 +594,54 @@ def test_hand_from_the_one_instrument_edition_goes_before_the_two_piano_staff():
     # the sheet for one player takes the same division: B3 of the upper staff is drawn on the lower one, E half-sharp 4 above
     at_once = {(e.staff, n.letter, n.octave) for e in score.events if e.onset == 0 for n in e.notes}
     assert (1, "B", 3) in at_once and (0, "E", 4) in at_once and (0, "B", 3) not in at_once
+
+
+def test_a_grace_note_of_the_file_is_drawn_as_a_grace_note_before_its_main_note():
+    """`grace` in preludes.json: a grace note of the print entered as a short real note before the beat (so that it can be
+    played and heard). The sheet draws it small before the note it leads to, also over a barline and as a group of three,
+    and it takes no time in its bar: no rest, no tuplet."""
+    prelude = {"number": 3, "bars": 2, "time": "6/8", "notes": [
+        {"onset": 0, "dur": 3, "step": 96, "piano": 1, "bar": 1, "hand": "right"},
+        {"onset": 2.875, "dur": 0.125, "step": 100, "piano": 1, "bar": 1, "hand": "right"},                       # a real thirty-second before the last grace note
+        {"onset": 2.75, "dur": 1 / 12, "step": 101, "piano": 2, "bar": 1, "hand": "right", "grace": True},        # three inside the last sixteenth of bar 1 ...
+        {"onset": 2.75 + 1 / 12, "dur": 1 / 12, "step": 103, "piano": 2, "bar": 1, "hand": "right", "grace": True},
+        {"onset": 2.75 + 2 / 12, "dur": 1 / 12, "step": 105, "piano": 2, "bar": 1, "hand": "right", "grace": True},
+        {"onset": 3, "dur": 1.5, "step": 103, "piano": 2, "bar": 2, "hand": "right"},                              # ... before the downbeat of bar 2
+        {"onset": 4.375, "dur": 0.125, "step": 107, "piano": 2, "bar": 2, "hand": "right", "grace": True},        # a single one before the second beat
+        {"onset": 4.5, "dur": 1.5, "step": 109, "piano": 2, "bar": 2, "hand": "right"},
+        {"onset": 3, "dur": 3, "step": 46, "piano": 1, "bar": 2, "hand": "left"}]}
+    score = mx.prelude_score(prelude, updown=True)
+    small = [(e.onset, e.staff, [n.name() for n in e.notes]) for e in score.events if e.grace]
+    assert [(o, s) for o, s, _ in small] == [(F(3), 0)] * 3 + [(F(9, 2), 0)] and not score.warnings      # the group stands before bar 2, not before the thirty-second
+    root = ET.fromstring(mx.to_musicxml(score))
+    first, second = root.find("part").findall("measure")
+    assert not first.findall("note/grace") and len(second.findall("note/grace")) == 4
+    in_order = [(n.find("grace") is not None, n.findtext("pitch/step")) for n in second.findall("note") if n.findtext("staff") == "1" and n.find("rest") is None]
+    assert [g for g, _ in in_order] == [True, True, True, False, True, False]
+    back, bars = read_back(mx.to_musicxml(score))
+    assert sorted((o, d) for _, staff, o, d, *_ in back if staff == 1) == [(F(0), F(3)), (F(23, 8), F(1, 8)), (F(3), F(3, 2)), (F(9, 2), F(3, 2))]
+    assert not second.findall("note/time-modification") and all(v == 3 for _, _, _, voices in bars[0] for v in voices)
+    # the four-staff sheet draws them the same way, on their piano
+    assert len(ET.fromstring(mx.to_musicxml(mx.prelude_score(prelude))).findall(".//grace")) == 4
+
+
+def test_a_chord_struck_under_held_notes_gets_the_clef_it_needs():
+    """Prelude III, last two bars, as the composer's two-staff edition has them: the left hand strikes B4 and F half-sharp 5
+    (treble clef), holds them into the last bar and plays the bass chord from B1 up there (the edition goes back to the bass
+    clef and gives the held notes to the upper staff). The clef of a bar follows what begins in it, so the last bar of the
+    lower staff is in the bass clef; held notes alone do not keep a chord eight ledger lines below a treble staff."""
+    def note(letter, octave):
+        return mx.Note(letter, octave, "natural")
+    bars = [mx.Bar(1, "3/4", F(0), F(3)), mx.Bar(2, "3/4", F(3), F(3)), mx.Bar(3, "3/4", F(6), F(3))]
+    events = [mx.Event(0, F(0), F(9), [note("B", 5)]),
+              mx.Event(1, F(0), F(3), [note("B", 1), note("D", 3)]),
+              mx.Event(1, F(3), F(6), [note("B", 4), note("F", 5)]),                       # struck in bar 2, held through bar 3
+              mx.Event(1, F(6), F(3), [note("B", 1), note("F", 3), note("B", 3), note("D", 4), note("F", 4)])]
+    score = mx.Score("clefs", [mx.Part("Piano")], bars, events)
+    mx.set_clefs(score)
+    assert score.parts[0].clefs == ["G", "F"] and score.clefs == {(1, 1): "G", (2, 1): "F"}
+    # a bar that only holds what was struck before keeps the clef of those notes
+    score = mx.Score("clefs", [mx.Part("Piano")], bars, events[:3])
+    mx.set_clefs(score)
+    assert score.clefs == {(1, 1): "G"}
+

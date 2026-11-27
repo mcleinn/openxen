@@ -54,7 +54,7 @@ import re
 import shutil
 import subprocess
 import sys
-from bisect import bisect_right
+from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, field
 from fractions import Fraction
 from pathlib import Path
@@ -748,19 +748,25 @@ def choose_clefs(bars: list[list[Note]], first: str = "G", options=("G", "F", "F
 
 def set_clefs(score: Score, staves=None) -> None:
     """Choose the clefs of the given staves (default: all) after their notes (`choose_clefs`): the
-    first one goes into the part, every change into `score.clefs` at the bar where it begins."""
+    first one goes into the part, every change into `score.clefs` at the bar where it begins. A bar is
+    judged by the notes that begin in it; notes held over from the bar before count only in a bar
+    where nothing begins (so a chord struck under a held note gets the clef the chord needs)."""
     starts = [b.start for b in score.bars]
     owner = [(part, s) for part in score.parts for s in range(len(part.clefs))]
     for staff in (range(len(owner)) if staves is None else staves):
         part, s = owner[staff]
         bars: list[list[Note]] = [[] for _ in score.bars]
+        held: list[list[Note]] = [[] for _ in score.bars]
         for e in score.events:
             if e.staff == staff and starts[0] <= e.onset < starts[-1] + score.bars[-1].length:
                 first = bisect_right(starts, e.onset) - 1
                 for i in range(first, len(starts)):           # a note held over the barline is drawn in the next bar too
                     if i > first and starts[i] >= e.onset + e.dur:
                         break
-                    bars[i].extend(e.notes)
+                    (held if i > first else bars)[i].extend(e.notes)
+        # the clef of a bar follows what begins in it; notes that are only held over from the bar before
+        # (drawn again, tied) choose it where nothing else begins
+        bars = [struck or tied for struck, tied in zip(bars, held)]
         chosen = choose_clefs(bars, first=part.clefs[s])
         used = next((c for c, notes in zip(chosen, bars) if notes), chosen[0])       # no change of clef before the first note
         part.clefs[s] = last = used
@@ -1080,7 +1086,9 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
     the staff of a note within its piano is chosen by pitch (`choose_staves`), as before.
     With `updown` the music is laid out for one player on two staves: every note on the staff it is
     printed on (`prelude_hands`: upper = right hand, lower = left hand), named in ups and downs, and
-    the clefs follow what each staff holds (`set_clefs`)."""
+    the clefs follow what each staff holds (`set_clefs`). A note marked `grace` in the file (a grace note
+    of the print, held there as a short real note before the beat) is drawn as a grace note before the
+    note it leads to and takes no time in the bar."""
     bars, starts = prelude_bars(prelude)
     total = bars[-1].start + bars[-1].length
     sounding = sounding or updown
@@ -1095,13 +1103,28 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
                  for n in raw]
         staves = prelude_hands(prelude)[1] if updown else choose_staves(timed)       # one player: the printed staff; else by pitch
         chords: dict[tuple, list] = {}
+        # a grace note of the print that the file holds as a short real note before its main note (`grace`) is drawn as a
+        # grace note again: before the first ordinary note of its staff that begins where it ends or later; grace notes
+        # that follow one another without a gap are one group and stand before the same note
+        mains = [sorted({onset for n, (onset, _, _), staff in zip(raw, timed, staves) if staff == s and not n.get("grace")}) for s in (0, 1)]
+        group_end: dict[tuple, Fraction] = {}
+        for n, (onset, end, _), staff in sorted(zip(raw, timed, staves), key=lambda item: item[1][0], reverse=True):
+            if n.get("grace"):
+                group_end[(staff, onset)] = group_end.get((staff, end), end)
         for n, (onset, end, key), staff in zip(raw, timed, staves):
             if piano and (int(n["step"]) + piano - 1) % 2:
                 score.warnings.append(f"piano {piano}, step {n['step']} at {onset}: not a key of this piano, left out")
                 continue
+            if n.get("grace"):
+                later = bisect_left(mains[staff], group_end[(staff, onset)])
+                if later == len(mains[staff]):
+                    score.warnings.append(f"piano {piano}: grace note at {onset} has no note after it, left out")
+                    continue
+                chords.setdefault((staff, mains[staff][later], "grace", onset), []).append((Fraction(0), key, n))
+                continue
             chords.setdefault((staff, onset), []).append((end - onset, key, n))
         spellers = (Speller(), Speller())
-        for (staff, onset), members in sorted(chords.items(), key=lambda c: (c[0][1], c[0][0])):
+        for (staff, onset, *small), members in sorted(chords.items(), key=lambda c: (c[0][1], c[0][0], len(c[0]) < 3, c[0][3:])):
             if onset >= total:
                 score.warnings.append(f"piano {piano}: note at {onset} after the last bar, left out")
                 continue
@@ -1135,7 +1158,7 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
                     note.other_source = SOURCE_SHORT.get(other.get("source", ""), other.get("source", ""))
                 by_length.setdefault(dur, []).append(note)
             for dur, notes in by_length.items():
-                score.events.append(Event(staff if updown else 2 * (piano - 1) + staff, onset, dur, notes))
+                score.events.append(Event(staff if updown else 2 * (piano - 1) + staff, onset, dur, notes, grace=bool(small)))
     marked = {(starts[u["bar"]], 0 if updown else 2 * (int(u.get("piano", 1)) - 1)) for u in prelude.get("uncertain") or [] if u.get("bar") in starts}
     marked |= {(starts[b], 0) for b in doubtful if b in starts}
     score.marks += [Mark(onset, staff, "?") for onset, staff in sorted(marked) if onset < total]
