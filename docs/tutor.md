@@ -449,7 +449,7 @@ Every transcribed score carries how far it was checked (`checked` in the piece, 
 `library get`, the grade as `checked` in search results): `well checked`, `partly checked` or
 `unverified`, how it was checked, a recording to listen to, the bars known to be doubtful, and the
 warning the tutor gives once. The grades are this project's judgement from the verification notes
-kept with each piece (`SCORE_CHECKS`, `PRELUDES_*` in `library_build.py`): a prelude is well checked only when every note was read against the composer's two-staff edition (Belaieff 418; so far 1, 3, 4 and 10; 2, 6 and 23 were read too but dense chords could not be resolved in the scan); the others are partly checked (by ear against recordings).
+kept with each piece (`SCORE_CHECKS`, `PRELUDES_*` in `library_build.py`): a prelude is well checked only when every note was read against the composer's two-staff edition (Belaieff 418; 1, 3, 4, 10, 14 and 17; the others were read too, but dense chords and clusters could not be resolved in the scan, see PRELUDES_DOUBTFUL); the others are partly checked (by ear against recordings).
 
 ## Sheets of our readings
 

@@ -451,12 +451,14 @@ SCORE_CHECKS = {
                                    "29 % hidden behind other notes, 2 contradicted); rhythm checked by bar sums only; the last seven bars rest on the image alone",
                             "listen": "Woyten, \"Ephemeral Happiness\" (the composer's own recording)"},
 }
-PRELUDES_WELL = {1, 3, 4, 10}       # every note read against the composer's two-staff edition (Belaieff 418): PROOF_418_P*.md
+PRELUDES_WELL = {1, 3, 4, 10, 14, 17}       # every note read against the composer's two-staff edition (Belaieff 418): PROOF_418_P*.md
 PRELUDES_UNVERIFIED = set()        # every prelude has at least the check against recordings
 PRELUDES_DOUBTFUL = {1: [6, 23, 26], 2: [3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 16, 17, 18, 19, 20, 30, 31], 3: [24, 25, 26, 47, 48, 49],
                      5: [6, 22, 26, 27, 32, 33, 35, 44, 45, 46, 48], 6: [16, 17, 18, 19, 20], 7: [7, 11, 12, 13, 18, 19, 29, 30, 31, 32, 33],
                      8: [5, 6, 11, 12, 17, 18, 19, 20, 23, 24, 25, 26, 35, 36], 9: [20, 21, 23, 28, 29],
-                     11: [8, 11, 12, 13, 23, 24, 25, 26, 35, 36, 37], 12: [3, 9, 10, 12, 15, 17], 17: [19, 21], 21: [22],
+                     11: [8, 11, 12, 13, 23, 24, 25, 26, 35, 36, 37], 12: [3, 9, 10, 12, 15, 17],
+                     13: [4, 6, 11, 13, 15, 19, 21, 24, 25], 14: [17, 18, 22, 23, 27, 35, 38], 15: [14],
+                     16: [15, 16, 17, 21, 27, 30, 31, 32, 39, 41, 42, 46], 17: [4, 5, 10, 13, 14, 15, 16, 18, 21], 18: [3, 4], 21: [22],
                      23: [5, 6, 7, 8, 9, 12, 13, 23, 24, 29, 30, 31]}      # file numbering; renumbered below
 PRELUDES_HOW = ("read from Ueli Raz's engraving (a PDF), repaired, then checked by ear against his own rendering and against "
                 "the recording by Sylvaine Billier and Martine Joste")
