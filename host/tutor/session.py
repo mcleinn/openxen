@@ -1698,6 +1698,8 @@ class Tutor:
             if differing:
                 head["two_readings"] = (f"in bar{'s' if len(differing) != 1 else ''} {', '.join(map(str, differing))} the sources of this "
                                         f"transcription differ (printed score, engraving or recording); those bars come with both readings")
+            if piece.get("two_hands"):
+                head["two_hands"] = dict(piece["two_hands"])
             head["note"] = ("get with phrase = a bar number and phrases = how many bars (up to 4) gives those bars as steps; part = upper "
                             "(right hand), lower (left hand) or both. Teach hands separately first, a bar or two at a time.")
             return head
@@ -1742,6 +1744,11 @@ class Tutor:
             if doubtful:
                 head["transcription"]["doubtful_here"] = (f"bar{'s' if len(doubtful) != 1 else ''} {', '.join(map(str, doubtful))}: the check "
                                                           f"disagreed with this reading or could not settle it. Say so before teaching it.")
+        tight = [bar["n"] for bar in chosen if bar["n"] in (piece.get("two_hands") or {}).get("tight_bars", [])]
+        if tight:
+            head["two_hands_here"] = (f"bar{'s' if len(tight) != 1 else ''} {', '.join(map(str, tight))}: written for two players; one hand has "
+                                      f"more to strike at once than it reaches. Say so, take the upper line first, then break the chord or "
+                                      f"leave inner notes out.")
         if readings:
             head["two_readings"] = readings
             head["two_readings_note"] = ("Here the sources of this transcription differ (the printed score, an engraving of it, or a "

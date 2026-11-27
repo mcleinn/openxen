@@ -451,9 +451,9 @@ SCORE_CHECKS = {
                                    "29 % hidden behind other notes, 2 contradicted); rhythm checked by bar sums only; the last seven bars rest on the image alone",
                             "listen": "Woyten, \"Ephemeral Happiness\" (the composer's own recording)"},
 }
-PRELUDES_WELL = {7, 14, 16, 20, 22, 24}
-PRELUDES_UNVERIFIED = {2, 3, 4, 6, 10, 23}
-PRELUDES_DOUBTFUL = {3: [20], 5: [44, 45], 7: [18], 9: [23, 28, 29], 10: [1], 11: [8], 17: [19, 21], 21: [22], 23: [24]}
+PRELUDES_WELL = {3, 7, 14, 16, 20, 22, 24}     # 3: every bar proofread against engraving and print (PROOF_P3.md)
+PRELUDES_UNVERIFIED = {2, 4, 6, 10, 23}
+PRELUDES_DOUBTFUL = {3: [18, 20, 28, 38, 43, 48, 50], 5: [44, 45], 7: [18], 9: [23, 28, 29], 10: [1], 11: [8], 17: [19, 21], 21: [22], 23: [24]}
 PRELUDES_HOW = ("read from Ueli Raz's engraving (a PDF), repaired, then checked by ear against his own rendering and against "
                 "the recording by Sylvaine Billier and Martine Joste")
 PRELUDES_LISTEN = "Sylvaine Billier and Martine Joste, 24 Preludes op. 22 (col legno; played there on two pianos tuned a quarter-tone apart)"
@@ -515,9 +515,13 @@ def wyschnegradsky(path: Path):
     and its time signatures. Read from Ueli Raz's engraving (see reference/music/wyschnegradsky);
     repaired and checked against recordings, not proofread as a whole. The two pianos were the
     composer's way to get quarter-tones from ordinary instruments; here both are merged into one
-    quarter-tone instrument and the notes divided between the hands by pitch (the rule of the
-    sheets, `scores.musicxml.choose_staves`): upper = right hand, lower = left hand. The tutor
-    never sees the two-piano layout. `zero_length_bars` are barlines the
+    quarter-tone instrument and every note stays on the staff it is printed on: the upper staves
+    of both pianos are the upper staff (right hand), the lower staves the lower one (left hand),
+    so melody and bass stay where the composer put them (`scores.musicxml.prelude_hands`, which
+    the sheets use too; notes without a printed staff follow the lines around them). The tutor
+    never sees the two-piano layout. What was written for four hands does not always fit two:
+    `two_hands` names the bars in which one staff asks for more than a hand reaches
+    (`scores.hands.playability`); no note is left out or moved for that. `zero_length_bars` are barlines the
     reader counted that are no bars (a time signature announced at the end of a system): they are
     left out and the bars renumbered, which gives the engraving's own bar numbers. A note with
     two readings (`source`, `also`) keeps both, as in the other scores."""
@@ -540,11 +544,11 @@ def wyschnegradsky(path: Path):
             at += lengths[n]
         bars = {n: {"n": n, "time": time_of(n), "length": round(lengths[n], 4), "staves": {"upper": {}, "lower": {}}, "variants": []}
                 for n in starts if n not in empty}
-        from fractions import Fraction
-        from .scores.musicxml import choose_staves
-        sounding = sorted((n for n in prelude["notes"] if n["bar"] in bars and float(n["dur"]) > 0), key=lambda n: (n["onset"], n["step"]))
-        hands = choose_staves([(Fraction(n["onset"]).limit_denominator(960), Fraction(n["onset"] + n["dur"]).limit_denominator(960),
-                                (int(n["step"]) + 1) // 2) for n in sounding])
+        from .scores.hands import playability
+        from .scores.musicxml import prelude_hands
+        every, staff_of = prelude_hands(prelude)
+        kept = [(n, hand) for n, hand in zip(every, staff_of) if n["bar"] in bars]
+        sounding, hands = [n for n, _ in kept], [hand for _, hand in kept]
         for note, hand in zip(sounding, hands):
             bar = bars[note["bar"]]
             beat = round(max(0.0, float(note["onset"]) - starts[note["bar"]]), 4)
@@ -569,6 +573,21 @@ def wyschnegradsky(path: Path):
         grade = "well checked" if number in PRELUDES_WELL else "unverified" if number in PRELUDES_UNVERIFIED else "partly checked"
         doubtful = PRELUDES_DOUBTFUL.get(number, []) + [u["bar"] for u in prelude.get("uncertain") or [] if isinstance(u.get("bar"), int)]
         doubtful = [renumbered[b] for b in doubtful if b in renumbered]
+        play = playability([(n["onset"], n["onset"] + n["dur"], n["step"]) for n in sounding], hands, per_octave=24)
+        ends = sorted((starts[n] + lengths[n], renumbered[n]) for n in renumbered)
+
+        def bars_of(times: list[float]) -> list[int]:
+            return sorted({next((number for end, number in ends if t < end - 1e-9), ends[-1][1]) for t in times})
+
+        tight, four = bars_of(play["over_span"]), bars_of(play["unplayable"])
+        two_hands = {"fits": not tight, "tight_bars": tight, "four_hand_bars": four, "most_notes_at_once": play["max_sounding"],
+                     "pedal_bars": [b for b in bars_of(play["held_over"]) if b not in tight],
+                     "reach": "judged by what a medium hand reaches on a piano (a ninth, thumb to little finger); on this keyboard the reach depends on the layout"}
+        if tight:
+            two_hands["say"] = ("This music was written for two players. In the bars named in tight_bars one hand has more to strike at once "
+                                "than it reaches (in four_hand_bars no division between two hands would fit): nothing is left out there. "
+                                "Tell the player so before such a bar, take the upper line first, then break the chord or leave "
+                                "its inner notes out. In pedal_bars a hand has to let go of held notes (or use a sustain pedal).")
         seconds = max(1.0, at * 60.0 / float((prelude.get("tempi") or [{"bpm": 80}])[0].get("bpm", 80) or 80))
         density = len(prelude["notes"]) / seconds
         yield {
@@ -578,7 +597,7 @@ def wyschnegradsky(path: Path):
             "source": "read from Ueli Raz's engraving of the Belaieff edition, checked against his rendering and against recordings; "
                       "not proofread as a whole", "licence": "private use",
             "notes": [], "theory": {}, "phrases": [], "score": out, "bars": len(out),
-            "checked": checked(grade, PRELUDES_HOW, PRELUDES_LISTEN, doubtful),
+            "checked": checked(grade, PRELUDES_HOW, PRELUDES_LISTEN, doubtful), "two_hands": two_hands,
         }
 
 

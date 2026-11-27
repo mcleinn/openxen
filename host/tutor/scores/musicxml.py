@@ -30,8 +30,9 @@ What the writer decides, since the files do not hold it:
   key signature otherwise), worked out here for this layout, never copied from the source;
 * beams: notes shorter than a quarter within one beat (or one tuplet).
 
-Not written: slurs, dynamics, pedal, octave lines, clef changes, the original's beams and
-stem directions. Grace notes, fermatas, staccato dots, repeats and endings are written where
+Not written: slurs, dynamics, pedal, octave lines, the original's clefs, beams and stem
+directions. Clefs: fixed (treble over bass) except where `set_clefs` is asked to choose them
+after the notes (the preludes for one player), which changes clef at barlines only. Grace notes, fermatas, staccato dots, repeats and endings are written where
 the file has them.
 
 Rendering uses an existing engraver: MuseScore's command line if it is installed (or unpacked
@@ -151,7 +152,7 @@ class Bar:
 @dataclass
 class Part:
     name: str
-    clefs: list[str] = field(default_factory=lambda: ["G", "F"])     # one per staff
+    clefs: list[str] = field(default_factory=lambda: ["G", "F"])     # one per staff, a key of CLEFS
     transpose: float = 0.0           # sounding minus written, in semitones (-0.5: a quarter-tone lower). Written as <transpose> only
                                      # if whole: the schema allows decimals, but music21 refuses them, so the part name has to say it
 
@@ -174,6 +175,7 @@ class Score:
     header: list[str] = field(default_factory=list)     # lines under the title
     composer: str = ""
     keep_values: bool = False        # durations are the printed note values: do not regroup them
+    clefs: dict[tuple[int, int], str] = field(default_factory=dict)     # (bar index, staff) -> the clef that begins there
     warnings: list[str] = field(default_factory=list)
 
 
@@ -663,9 +665,11 @@ def to_musicxml(score: Score) -> str:
             if i == 0:
                 attributes.append(f"<staves>{len(part.clefs)}</staves>")
                 for s, clef in enumerate(part.clefs):
-                    attributes.append(f'<clef number="{s + 1}"><sign>{clef}</sign><line>{ {"G": 2, "F": 4, "C": 3}[clef] }</line></clef>')
+                    attributes.append(clef_xml(clef, s + 1))
                 if part.transpose and part.transpose == int(part.transpose):
                     attributes.append(f"<transpose><diatonic>0</diatonic><chromatic>{int(part.transpose)}</chromatic></transpose>")
+            if i:
+                attributes += [clef_xml(score.clefs[(i, first_staff + s)], s + 1) for s in range(len(part.clefs)) if (i, first_staff + s) in score.clefs]
             if attributes:
                 x.append("<attributes>" + "".join(attributes) + "</attributes>")
             if bar.repeat_start or bar.ending:
@@ -702,6 +706,69 @@ def to_musicxml(score: Score) -> str:
         first_staff += len(part.clefs)
     x.append("</score-partwise>")
     return "\n".join(x) + "\n"
+
+
+# clef name -> (sign, line, octaves the clef is moved, staff position of its bottom line: 7 per octave, C0 = 0)
+CLEFS = {"G": ("G", 2, 0, 30), "F": ("F", 4, 0, 18), "C": ("C", 3, 0, 24), "G8va": ("G", 2, 1, 37), "F8vb": ("F", 4, -1, 11)}
+
+
+def clef_xml(clef: str, number: int) -> str:
+    sign, line, octave, _ = CLEFS[clef]
+    return (f'<clef number="{number}"><sign>{sign}</sign><line>{line}</line>'
+            + (f"<clef-octave-change>{octave}</clef-octave-change>" if octave else "") + "</clef>")
+
+
+def ledger_lines(note: Note, clef: str) -> int:
+    """How many ledger lines the note needs in this clef."""
+    bottom = CLEFS[clef][3]
+    position = 7 * note.octave + LETTERS.index(note.letter)
+    return (bottom - position) // 2 if position < bottom else max(0, (position - bottom - 8) // 2)
+
+
+def choose_clefs(bars: list[list[Note]], first: str = "G", options=("G", "F", "F8vb", "G8va"), change: float = 6.0) -> list[str]:
+    """A clef for every bar of one staff, given the notes of each bar: the clefs that need the fewest
+    ledger lines over the whole piece (a note beyond three lines counts three times for each further
+    one), a change of clef counting as much as `change` ledger lines (so a single low note does not
+    bring a bass clef, a passage does) and a clef with an 8 a line and a half
+    per note (the bass clef serves down to C2). An empty bar keeps the clef before it; `first` wins a tie in the first bar."""
+    if not bars:
+        return []
+    def cost(notes, clef):
+        lines = [ledger_lines(n, clef) for n in notes]
+        return sum(k + 2 * max(0, k - 3) for k in lines) + (1.5 * len(lines) if CLEFS[clef][2] else 0.0)
+    best = {c: (cost(bars[0], c) + (0.0 if c == first else 0.01), [c]) for c in options}
+    for notes in bars[1:]:
+        new = {}
+        for c in options:
+            before = min(options, key=lambda b: (best[b][0] + (change if b != c else 0.0), options.index(b)))
+            new[c] = (best[before][0] + (change if before != c else 0.0) + cost(notes, c), best[before][1] + [c])
+        best = new
+    return min((best[c] for c in options), key=lambda item: item[0])[1]
+
+
+def set_clefs(score: Score, staves=None) -> None:
+    """Choose the clefs of the given staves (default: all) after their notes (`choose_clefs`): the
+    first one goes into the part, every change into `score.clefs` at the bar where it begins."""
+    starts = [b.start for b in score.bars]
+    owner = [(part, s) for part in score.parts for s in range(len(part.clefs))]
+    for staff in (range(len(owner)) if staves is None else staves):
+        part, s = owner[staff]
+        bars: list[list[Note]] = [[] for _ in score.bars]
+        for e in score.events:
+            if e.staff == staff and starts[0] <= e.onset < starts[-1] + score.bars[-1].length:
+                first = bisect_right(starts, e.onset) - 1
+                for i in range(first, len(starts)):           # a note held over the barline is drawn in the next bar too
+                    if i > first and starts[i] >= e.onset + e.dur:
+                        break
+                    bars[i].extend(e.notes)
+        chosen = choose_clefs(bars, first=part.clefs[s])
+        used = next((c for c, notes in zip(chosen, bars) if notes), chosen[0])       # no change of clef before the first note
+        part.clefs[s] = last = used
+        seen = False
+        for i, (clef, notes) in enumerate(zip(chosen, bars)):
+            seen = seen or bool(notes)
+            if seen and clef != last:
+                score.clefs[(i, staff)] = last = clef
 
 
 def alter_text(value: float) -> str:
@@ -924,6 +991,49 @@ def choose_staves(notes: list[tuple[Fraction, Fraction, int]]) -> list[int]:
     return out
 
 
+def prelude_seconds(prelude: dict):
+    """A function from quarter notes to seconds for one prelude, after its `tempi` ([{"onset",
+    "bpm_quarter"}], the last one given for a moment counts; 80 where none is given)."""
+    marks: dict[float, float] = {}
+    for t in prelude.get("tempi") or []:
+        bpm = float(t.get("bpm_quarter") or t.get("bpm") or 0)
+        if bpm > 0:
+            marks[float(t.get("onset") or 0.0)] = bpm
+    if 0.0 not in marks:
+        marks[0.0] = min(marks.items())[1] if marks else 80.0
+    table, at = [], 0.0                                   # (from quarter, seconds there, seconds per quarter)
+    ordered = sorted(marks.items())
+    for k, (onset, bpm) in enumerate(ordered):
+        table.append((onset, at, 60.0 / bpm))
+        if k + 1 < len(ordered):
+            at += (ordered[k + 1][0] - onset) * 60.0 / bpm
+    starts = [row[0] for row in table]
+
+    def seconds(quarter: float) -> float:
+        onset, at, each = table[max(0, bisect_right(starts, quarter) - 1)]
+        return round(at + (quarter - onset) * each, 6)
+
+    return seconds
+
+
+def prelude_hands(prelude: dict, model=None) -> tuple[list[dict], list[int]]:
+    """The sounding notes of a prelude (both pianos, in order of onset and pitch) and the staff of each
+    in the layout for one player: 0 = upper staff = right hand, 1 = lower staff = left hand. A note
+    stays on the staff it is printed on (`staff`: "upper" or "lower" within its piano): the upper
+    staves of both pianos become the upper staff, the lower staves the lower one. Notes without `staff`
+    (bars typed in by hand) are placed by `hands.assign_hands` with all the others held fixed, so that
+    they go on with the lines around them (times in seconds after the prelude's tempi, pitch in
+    quarter-tone steps). The library and the sheet both take the division from here."""
+    from .hands import DEFAULT, assign_hands
+    notes = sorted((n for n in prelude["notes"] if float(n["dur"]) > 0), key=lambda n: (n["onset"], n["step"]))
+    known = [{"upper": 0, "lower": 1}.get(n.get("staff")) for n in notes]
+    if None not in known:
+        return notes, known
+    seconds = prelude_seconds(prelude)
+    timed = [(seconds(float(n["onset"])), seconds(float(n["onset"]) + float(n["dur"])), int(n["step"])) for n in notes]
+    return notes, assign_hands(timed, per_octave=24, middle=96, model=model or DEFAULT, fixed=known)
+
+
 def prelude_bars(prelude: dict) -> tuple[list[Bar], dict[int, Fraction]]:
     """Bars of a prelude (zero-length bars left out, the others renumbered: the engraver's numbers) and
     the start of every bar of the file's own numbering. Same arithmetic as `library_build.wyschnegradsky`."""
@@ -964,7 +1074,11 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
     """One prelude on four staves. Steps are quarter-tones (C4 = 96); piano II has the odd ones and is
     written, as in the two-piano edition, a quarter-tone above what sounds: in ordinary notation. With
     `sounding` piano II keeps the same letters and gets quarter-tone signs for the pitch that sounds
-    (natural -> quarter-flat, sharp -> quarter-sharp, flat -> three-quarter-flat)."""
+    (natural -> quarter-flat, sharp -> quarter-sharp, flat -> three-quarter-flat). On the four staves
+    the staff of a note within its piano is chosen by pitch (`choose_staves`), as before.
+    With `updown` the music is laid out for one player on two staves: every note on the staff it is
+    printed on (`prelude_hands`: upper = right hand, lower = left hand), named in ups and downs, and
+    the clefs follow what each staff holds (`set_clefs`)."""
     bars, starts = prelude_bars(prelude)
     total = bars[-1].start + bars[-1].length
     sounding = sounding or updown
@@ -977,7 +1091,7 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
         raw = sorted((n for n in prelude["notes"] if piano in (0, n["piano"]) and float(n["dur"]) > 0), key=lambda n: (n["onset"], n["step"]))
         timed = [(frac(n["onset"]), frac(n["onset"]) + frac(n["dur"]), (int(n["step"]) + 1) // 2 if updown else (int(n["step"]) + piano - 1) // 2)
                  for n in raw]
-        staves = choose_staves(timed)
+        staves = prelude_hands(prelude)[1] if updown else choose_staves(timed)       # one player: the printed staff; else by pitch
         chords: dict[tuple, list] = {}
         for n, (onset, end, key), staff in zip(raw, timed, staves):
             if piano and (int(n["step"]) + piano - 1) % 2:
@@ -1006,6 +1120,8 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
                 elif sounding and piano == 2:
                     note.accidental = QUARTER_LOWER[accidental]
                 for other in (n.get("also") or [])[:1]:
+                    if updown and other.get("source") == "engraving":
+                        continue        # the playing sheet follows the print; the engraver's slips are shown on the four-staff sheet only
                     other_key = (int(other["step"]) + piano - 1) // 2
                     note.other = key_name(other_key, flat=accidental == "flat" or other_key > key)
                     if updown:
@@ -1026,6 +1142,8 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
         if frac(t["onset"]) < total:
             tempi.setdefault(frac(t["onset"]), []).append(f"{t['bpm_quarter']:g}")
     score.marks += [Mark(onset, 0, " / ".join(values), tempo=True) for onset, values in sorted(tempi.items())]
+    if updown:
+        set_clefs(score)                 # each staff holds what its hand plays, wherever that lies: the clef follows
     return score
 
 
@@ -1187,7 +1305,8 @@ def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, lo
                 if mode == "sounding":
                     score.header[2] = "Piano II at sounding pitch (same letters as written, a quarter-tone lower). " + score.header[2]
                 if mode == "updown":
-                    score.header[1] = "Both pianos as one quarter-tone instrument, in xenharmlib's ups and downs: arrow = quarter-tone, sharp = semitone."
+                    score.header[1] = ("Both pianos as one quarter-tone instrument, each note on the staff it is printed on (upper = right hand); "
+                                       "ups and downs: arrow = quarter-tone, sharp = semitone.")
                 base = path.parent / "sheets" / (f"prelude_{number:02d}" + (f"_{mode}" if mode else ""))
                 pages = write_sheet(score, base, pdf, staff_mm=5.0)
                 parts.append(base.with_name(base.name + ".pdf"))

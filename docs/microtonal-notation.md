@@ -324,7 +324,9 @@ files passed on 2026-11-27).
 | `write_sheet(score, base, pdf=True, staff_mm=6.0) -> pages` | writes `base.musicxml` and `base.pdf` |
 | `render_pdf(xml_path, pdf_path, staff_mm=6.0) -> pages` | engraves an existing MusicXML file |
 | `bars_score(data, header, doubtful)` | a score file with `bars` and two staves (the Woyten format) as `Score` |
-| `prelude_score(prelude, sounding=False, doubtful)` | one prelude of `preludes.json` as `Score` on four staves |
+| `prelude_score(prelude, sounding=False, doubtful, updown=False)` | one prelude of `preludes.json` as `Score` on four staves; with `updown` for one player on two staves |
+| `prelude_hands(prelude) -> (notes, staves)` | the staff (0 upper = right hand, 1 lower = left hand) of every note in the layout for one player; the library uses the same call |
+| `choose_clefs(bars, first)`, `set_clefs(score)`, `ledger_lines(note, clef)` | a clef per bar and staff after the notes it holds |
 | `write_all(source, sounding, pdf)` | all sheets (`--all`) |
 | `edo_alter(step, n, letter, octave)` | `<alter>` in an equal tuning |
 | `find_tuplets`, `split_values`, `note_value`, `group_bounds`, `assign_voices` | the rhythm rules of section 3, usable on their own |
@@ -370,11 +372,15 @@ print(pages, score.warnings)
   chord can be written with arrows or with quarter-tone signs. A decision per tuning is needed;
   arrows match what the tutor says aloud.
 - **Spelling in the preludes.** The file holds key numbers only. Sharp or flat is chosen by a rule
-  (`Speller`); the staff of a note by its pitch (`choose_staves`). To look like the engraving, the
-  reader (`reference/music/wyschnegradsky/convert.py`) would have to store spelling, staff and clef.
+  (`Speller`). The staff: on the four-staff proofreading sheet by pitch within each piano
+  (`choose_staves`); on the sheet for one player the printed staff, which the reader
+  (`reference/music/wyschnegradsky/convert.py`) now stores per note (`staff`). To look like the
+  engraving it would have to store spelling and clef as well.
 - **Beams.** Written per beat and per tuplet; the original's beams (across beats, across staves) are
   not kept in the files.
-- **Octave lines and clef changes.** Not written; needed for the extreme registers of the preludes.
+- **Octave lines and clef changes.** Octave lines are not written. Clefs are fixed (treble over bass)
+  except on the preludes for one player, where `set_clefs` chooses them after the notes of each staff
+  (see below); a change of clef stands at a barline only, never inside a bar.
 - **Fingering and key colours.** MusicXML has `<technical><fingering>` per note and a `color`
   attribute on `<note>` and `<notehead>`. Neither is written yet, and whether Verovio draws them
   was not tried. Colours would let a sheet show the keyboard's key colours.
@@ -392,3 +398,31 @@ xenharmlib's first name uses sharps only and never more than one arrow, so the o
 `natural-up` and `natural-down` (`<alter>` 0.5 and -0.5) next to the plain sharp, all of which Verovio
 draws. Files: `prelude_NN_updown.*` and `preludes_as_read_updown.pdf`. These are the names the tutor
 speaks, so this is the sheet that matches a lesson.
+
+**Which staff, which hand.** Every note stays on the staff it is printed on in the two-piano edition:
+the upper staves of both pianos are the upper staff (right hand), the lower staves the lower staff
+(left hand), so melody and bass stay where the composer wrote them, whatever their pitch
+(`prelude_hands`; the tutor's library takes the division from the same function, so sheet and lesson
+agree). The earlier rule by pitch (above F4 up, below G3 down) had moved 30 % of the notes to the
+other staff. This is this project's arrangement for one player, not the composer's: where his own
+two-staff version (op. 22a) is at hand (Prelude I bars 1-22, Prelude XVI bars 1-29, read from four
+page images), 79 % of the notes are on the same staff as there. He redistributes: in Prelude I he
+gives the note that ends each rising run to the left hand, in Prelude XVI the tenor notes under the
+melody.
+
+About 4 % of the notes have no printed staff in the file (bars typed in by hand). They are placed by
+`host/tutor/scores/hands.py`, `assign_hands`, with all other notes held fixed: a search for the
+cheapest division between two hands in the manner of Nakamura, Ono & Sagayama (merged-output HMM,
+ISMIR 2014: each hand a chain of its own notes, solved with the Viterbi algorithm), with the pitch
+proximity and no-crossing of Chew & Wu (2004) and the hand spans of the fingering model (Balliauw
+et al. 2017) as costs. No pip package separates hands (`partitura` has Chew & Wu's voices only,
+`music21` nothing, `pianoplayer` wants the hands given). Hidden from it a quarter of the bars at a
+time, it puts 90 % of the notes of Preludes 1-10 back on their printed staff (87 % in Nos. 13-24,
+which were not used to set its weights). The same module says what two hands cannot do
+(`playability`): the music is for four hands, and no note is moved or left out because of that.
+
+**Clefs.** A staff now holds what its hand plays, which may lie anywhere (the print itself often has
+both staves in the treble clef and changes clef). `set_clefs` picks, per staff and bar, among treble,
+bass, bass an octave lower and treble an octave higher the clefs that need the fewest ledger lines
+over the whole piece, a change counting as much as six ledger lines, so a passage brings a change of
+clef and a single note does not. Changes stand at barlines.

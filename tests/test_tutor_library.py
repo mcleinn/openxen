@@ -716,9 +716,12 @@ def test_two_piano_preludes_become_one_quarter_tone_instrument(tmp_path):
     # bar 2 is a barline the reader counted that is no bar: left out, so the third becomes bar 2
     prelude = {"number": 16, "tuning": 24, "bars": 3, "time": "5/4", "time_changes": [{"bar": 1, "time": "5/4"}, {"bar": 2, "time": "4/4"}],
                "zero_length_bars": [2], "tempi": [{"bar": 1, "bpm": 52}], "notes": [
-                   {"onset": 0.0, "dur": 1.0, "step": 96, "piano": 1, "bar": 1, "source": "print", "also": [{"step": 94, "source": "engraving"}]},
-                   {"onset": 0.0, "dur": 1.0, "step": 104, "piano": 1, "bar": 1},
-                   {"onset": 1.0, "dur": 4.0, "step": 95, "piano": 2, "bar": 1}, {"onset": 5.0, "dur": 2.0, "step": 110, "piano": 1, "bar": 3}]}
+                   {"onset": 0.0, "dur": 1.0, "step": 96, "piano": 1, "bar": 1, "staff": "upper", "source": "print", "also": [{"step": 94, "source": "engraving"}]},
+                   {"onset": 0.0, "dur": 1.0, "step": 104, "piano": 1, "bar": 1, "staff": "upper"},
+                   {"onset": 1.0, "dur": 4.0, "step": 95, "piano": 2, "bar": 1, "staff": "lower"},
+                   {"onset": 5.0, "dur": 2.0, "step": 62, "piano": 2, "bar": 3, "staff": "upper"},
+                   {"onset": 5.0, "dur": 2.0, "step": 24, "piano": 1, "bar": 3, "staff": "lower"},
+                   {"onset": 5.0, "dur": 2.0, "step": 110, "piano": 1, "bar": 3}]}
     (source / "wyschnegradsky" / "preludes.json").write_text(json.dumps([prelude]), encoding="utf-8")
     assert build.build(source, out) == {"scores": 1}
     piece = lib.Library(out).piece("score/wyschnegradsky-prelude-16")
@@ -739,10 +742,22 @@ def test_two_piano_preludes_become_one_quarter_tone_instrument(tmp_path):
     assert (one["n"], two["n"]) == (1, 2) and "variants" not in two
     assert one["variants"] == [{"staff": "upper", "beat": 0.0, "step": 96, "source": "print", "other": 94, "other_source": "engraving"}]
     assert (one["time"], one["length"], two["time"], two["length"]) == ("5/4", 5.0, "4/4", 4.0)
-    # both pianos together, divided between the hands by pitch and not by piano: the second piano's note joins the right hand
-    assert one["staves"]["upper"] == [[0.0, 1.0, [96, 104]], [1.0, 4.0, [95]]] and one["staves"]["lower"] == []
+    # both pianos together, and every note on the staff it is printed on, whatever its pitch and its piano: the second piano's
+    # B3 a quarter-tone low stays in the left hand though it lies between the right hand's notes; the upper staff may go low
+    assert one["staves"]["upper"] == [[0.0, 1.0, [96, 104]]] and one["staves"]["lower"] == [[1.0, 4.0, [95]]]
     assert "two pianos" not in piece["form"] and "right hand" in piece["form"]
-    assert two["staves"]["upper"] == [[0.0, 2.0, [110]]]                                                           # onset counted from its bar
+    # onset counted from its bar; the note without a printed staff (typed in by hand) goes with the nearer line
+    assert two["staves"] == {"upper": [[0.0, 2.0, [62, 110]]], "lower": [[0.0, 2.0, [24]]]}
+    # written for four hands: the bar in which one hand cannot take its staff is named, nothing is left out, and the tutor says so
+    hands = piece["two_hands"]
+    assert hands["fits"] is False and hands["tight_bars"] == [2] and hands["four_hand_bars"] == [2] and "upper line first" in hands["say"]
+    t = Tutor(FakeXentool(sample_setup(24, (0, 1, 2, 3, 4))), library=lib.Library(out))
+    try:
+        assert t.library("get", id=piece["id"])["two_hands"]["tight_bars"] == [2]
+        assert "two_hands_here" not in t.library("get", id=piece["id"], phrase=1)
+        assert "bar 2: written for two players" in t.library("get", id=piece["id"], phrase=2)["two_hands_here"]
+    finally:
+        t.pump.stop()
 
 
 def test_the_real_collections_if_they_are_installed():

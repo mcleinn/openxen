@@ -192,7 +192,7 @@ neighbouring keys.
 | chord changes of 1,382 jazz standards | `github.com/mikeoliphant/JazzStandards` (from the iReal Pro community database) | any: chord symbols are spelled for the current tuning | none stated; private use |
 | 502 older songs as lead sheets (melody and chords) | OpenEWLD, `github.com/00sapo/OpenEWLD` | any | varies by piece; private use |
 | compositions in two staves ("Don't Take Five", 16 notes per octave; "Ephemeral Happiness", 17) | read from engraved scores: `host/tutor/scores/musescore_pdf.py` for MuseScore PDFs (glyph positions and vector paths; needs PyMuPDF), optical recognition for page images; JSON under `reference/music/woyten*/` | the tuning each was written for; elsewhere on the nearest notes | private use |
-| Wyschnegradsky, 24 Preludes op. 22 (written for two pianos a quarter-tone apart; in the library merged into one quarter-tone instrument, hands divided by pitch: the tutor never gets the two-piano layout) | read from Ueli Raz's free vector engraving of the Belaieff edition (`reference/music/wyschnegradsky/convert.py`); repaired once (`REPAIR.md` there): all 945 bars add up in every staff, 34 bars corrected by hand through `overrides.json`, the engraver's copying error in No. 1 bars 1, 3 and 8 corrected from the print; then checked against the engraver's own rendering and against recordings (`VERIFY.md` there): barlines that are no bars removed, grace-note accidentals read, 107 notes carry two readings (Prelude 1: all performances play the print, not the engraving); not proofread as a whole | 24; elsewhere on the nearest notes | private use (work under copyright) |
+| Wyschnegradsky, 24 Preludes op. 22 (written for two pianos a quarter-tone apart; in the library merged into one quarter-tone instrument, every note on the staff it is printed on: upper staves of both pianos = right hand, lower staves = left hand; the tutor never gets the two-piano layout. Each piece carries `two_hands`: the bars in which one hand has more to strike than it reaches, since the music is for four hands) | read from Ueli Raz's free vector engraving of the Belaieff edition (`reference/music/wyschnegradsky/convert.py`); repaired once (`REPAIR.md` there): all 945 bars add up in every staff, 34 bars corrected by hand through `overrides.json`, the engraver's copying error in No. 1 bars 1, 3 and 8 corrected from the print; then checked against the engraver's own rendering and against recordings (`VERIFY.md` there): barlines that are no bars removed, grace-note accidentals read, 107 notes carry two readings (Prelude 1: all performances play the print, not the engraving); not proofread as a whole | 24; elsewhere on the nearest notes | private use (work under copyright) |
 | 8 raga outlines, each with its tanpura tuning | written here from the 22-shruti model (ratios per note); the drone rule from the rhythm research (see Rhythm) | any: nearest step to each ratio, error reported | this repository |
 | rhythm library: 22 Hindustani talas with theka, 40 Carnatic talas, 8 mridangam lessons, 36 usul | `reference/music/rhythm/tala.json` (research of 2026-11-26/27 from the sources in its `SOURCES.md`), converted by `python -m tutor.rhythm_build` to `build/tutor-library/rhythm.json`; tool `rhythm` | none | facts from many sources, each cycle lists its own; private use |
 | tabla samples | Subodh Deolekar, "Tabla strokes dataset", Zenodo 4327350, in the bolbox selection; `host/synth/tabla_kit.py` | tabla tuned to C# | CC BY 4.0 |
@@ -450,7 +450,7 @@ Every transcribed score carries how far it was checked (`checked` in the piece, 
 `unverified`, how it was checked, a recording to listen to, the bars known to be doubtful, and the
 warning the tutor gives once. The grades are this project's judgement from the verification notes
 kept with each piece (`SCORE_CHECKS`, `PRELUDES_*` in `library_build.py`): of the 24 preludes, 7, 14,
-16, 20, 22 and 24 are well checked, 2, 3, 4, 6, 10 and 23 unverified, the rest partly checked.
+16, 20, 22 and 24 are well checked, as is 3 (proofread bar by bar against engraving and print), 2, 4, 6, 10 and 23 unverified, the rest partly checked.
 
 ## Sheets of our readings
 
@@ -468,6 +468,21 @@ They are written next to the files they show and are not committed: `reference/m
 `reference/music/woyten16/sheets/dont_take_five_as_read.*` and
 `reference/music/woyten/final/sheets/ephemeral_happiness_as_read.*`. One file:
 `python -m tutor.scores.musicxml FILE.json [OUT.musicxml] --pdf [--prelude N] [--sounding]`.
+
+With `--updown` the preludes are also written for one player (`prelude_NN_updown.*`): both pianos on
+two staves at sounding pitch, every note on the staff it is printed on (upper = right hand, lower =
+left hand), clefs chosen after what each staff holds. The library holds the same division
+(`scores/musicxml.py`, `prelude_hands`), so a lesson and this sheet agree. Notes without a printed
+staff (bars typed in by hand, about 4 %) are placed by `scores/hands.py`: a Viterbi search for the
+cheapest division between two hands (after Nakamura, Ono & Sagayama 2014 and Chew & Wu 2004, with
+the hand spans of the fingering model), the printed notes held fixed. The module also measures what
+two hands can do (`playability`: reach judged by a medium hand's ninth on a piano, a stand-in for
+this keyboard, where reach depends on the layout). The result is the piece's `two_hands` entry:
+`tight_bars` (one staff asks for more than a hand strikes at once), `four_hand_bars` (no division
+between two hands would fit), `pedal_bars` (a hand has to let go of held notes) and what to say. The
+tutor gets it with the piece's overview and, as `two_hands_here`, with every such bar. Nothing is
+left out or moved for it. This layout is the project's arrangement; it is compared with the
+composer's own two-staff version op. 22a in `docs/microtonal-notation.md`.
 
 - Preludes: four staves as in the two-piano edition and Ueli Raz's engraving, piano II in ordinary
   notation a quarter-tone above what sounds. `--sounding` writes piano II at sounding pitch with
