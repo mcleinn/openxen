@@ -321,6 +321,27 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
                               onsets=onsets, pulses=pulses, beats=beats, sound=sound, tap=tap, variant=variant)
 
     @server.tool()
+    def play_piece(action: str = "start", id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both",
+                   speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False, lights: bool = False,
+                   octave: int | None = None) -> str:
+        """Play a composition of the library (tradition "composition") from one bar to another,
+        as written: every note at its time and with its own length, held notes held, both
+        hands or one (`part` upper = right hand, lower = left hand, both). The server does the
+        timing, so fast passages come out even; you do not fetch or pass the notes. It
+        returns at once with the seconds it will take and plays by itself; action "stop" (or
+        the stop tool) ends it, "status" says what is playing. `speed` is a share of the
+        piece's own tempo (0.5 = half speed, for practice); `tempo_bpm` sets quarter notes per
+        minute instead. If the keyboard is in another tuning than the piece, pass
+        nearest=true to hear it on the nearest notes (say that it is an approximation), or
+        switch the tuning first. The piece is moved by octaves where the keyboard is too
+        small, and single notes outside it are played in a neighbouring octave: the result
+        says so (`moved`, `moved_single_notes`); `octave` forces the shift. `lights` shows
+        the struck keys, useful at slow speed only. Use it to let the player hear a passage
+        before and after practising it; use library get + demo when you want to teach the
+        notes step by step with fingers and names."""
+        return guard(tutor.play_piece, action, id, from_bar, to_bar, part, speed, tempo_bpm, nearest, lights, octave)
+
+    @server.tool()
     def drone(action: str = "status", raga: str | None = None, root: str | None = None, notes: list[str] | None = None,
               pace_s: float = 1.0, octave: int = 0, loudness: int = 50) -> str:
         """A drone under the playing, as a tanpura gives it for a raga. action "start" with

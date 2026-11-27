@@ -760,6 +760,56 @@ def test_two_piano_preludes_become_one_quarter_tone_instrument(tmp_path):
         t.pump.stop()
 
 
+def test_a_piece_is_played_from_bar_to_bar_with_its_own_lengths(tmp_path):
+    import time
+    source, out = tmp_path / "src", tmp_path / "lib"
+    (source / "woyten16").mkdir(parents=True)
+    score = {"title": "Little Piece", "composer": "Some One", "tuning": 31, "tempo": [{"bar": 1, "bpm": 240}, {"bar": 2, "bpm": 120}], "bars": [
+        {"n": 1, "time": "2/4", "staves": {
+            "upper": [{"beat": 1.0, "dur": 0.5, "notes": [{"step": 124}]}, {"beat": 1.5, "dur": 0.5, "notes": [{"step": 129}]},
+                      {"beat": 2.0, "dur": 1.0, "notes": [{"step": 134}]}],
+            "lower": [{"beat": 1.0, "dur": 2.0, "notes": [{"step": 93}, {"step": 111}]}]}},
+        {"n": 2, "time": "2/4", "staves": {"upper": [{"beat": 1.0, "dur": 2.0, "notes": [{"step": 124 + 31 * 3}]}], "lower": []}},
+    ]}
+    (source / "woyten16" / "dont_take_five.json").write_text(json.dumps(score), encoding="utf-8")
+    build.build(source, out)
+    library = lib.Library(out)
+    assert library.piece("score/dont-take-five")["tempi"] == [[1, 240.0], [2, 120.0]]
+    fake = FakeXentool(sample_setup(31, (0, 1, 2, 3)))
+    t = Tutor(fake, library=library)
+    try:
+        out1 = t.play_piece(id="score/dont-take-five", from_bar=1, to_bar=1)
+        assert out1["playing"] == "started" and out1["seconds"] == 0.5 and out1["notes"] == 5 and out1["bars"] == "1"
+        t._playing[0].join(timeout=3)
+        kb = t.keyboard
+        addr = lambda name: (lambda k: (k.board, k.key))(kb.keys_for_pitch(kb.tuning.parse(name)[0])[0])     # noqa: E731
+        # the held left-hand notes keep their full length (two quarters at 240 = 0.5 s) under the three right-hand notes
+        lengths = {a: ms for a, _, ms in fake.sounded}
+        assert lengths[addr("C3")] == lengths[addr("G3")] == 475 and lengths[addr("C4")] == 118 and lengths[addr("E4")] == 237
+        assert [a for a, _, _ in fake.sounded[:3]].count(addr("C4")) == 1 and t.play_piece("status") == {"playing": "no"}
+        # half speed, the right hand only; the second bar has its own tempo and a note above the keyboard, which is played lower
+        fake.sounded.clear()
+        out2 = t.play_piece(id="score/dont-take-five", from_bar=1, to_bar=2, part="upper", speed=0.5)
+        assert out2["seconds"] == 3.0 and out2["notes"] == 4 and "0.5 of the piece's tempo" in out2["tempo"] and "moved_single_notes" in out2
+        assert t.play_piece("status")["playing"] == "yes"
+        time.sleep(0.3)
+        assert t.stop() == {"stopped": True} and t._playing is None and len(fake.sounded) < 4       # stopped before the end
+        with pytest.raises(TutorError, match="between 1 and 2"):
+            t.play_piece(id="score/dont-take-five", from_bar=2, to_bar=5)
+    finally:
+        t.stop()
+        t.pump.stop()
+    other = Tutor(FakeXentool(sample_setup(53, (0, 1, 2, 3, 4))), library=library)
+    try:
+        with pytest.raises(TutorError, match="nearest=true"):
+            other.play_piece(id="score/dont-take-five")
+        near = other.play_piece(id="score/dont-take-five", to_bar=1, nearest=True)
+        assert "nearest notes of 53" in near["approximated"]
+    finally:
+        other.stop()
+        other.pump.stop()
+
+
 def test_the_real_collections_if_they_are_installed():
     """After `python -m tutor.library_build`: sizes as documented, every piece has phrases."""
     library = lib.Library()

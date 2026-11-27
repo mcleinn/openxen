@@ -458,7 +458,10 @@ PRELUDES_DOUBTFUL = {1: [6, 23, 26], 2: [3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15
                      8: [5, 6, 11, 12, 17, 18, 19, 20, 23, 24, 25, 26, 35, 36], 9: [20, 21, 23, 28, 29],
                      11: [8, 11, 12, 13, 23, 24, 25, 26, 35, 36, 37], 12: [3, 9, 10, 12, 15, 17],
                      13: [4, 6, 11, 13, 15, 19, 21, 24, 25], 14: [17, 18, 22, 23, 27, 35, 38], 15: [14],
-                     16: [15, 16, 17, 21, 27, 30, 31, 32, 39, 41, 42, 46], 17: [4, 5, 10, 13, 14, 15, 16, 18, 21], 18: [3, 4], 21: [22],
+                     16: [15, 16, 17, 21, 27, 30, 31, 32, 39, 41, 42, 46], 17: [4, 5, 10, 13, 14, 15, 16, 18, 21], 18: [3, 4],
+                     19: [4, 6, 8, 16, 19, 26, 27, 28, 29, 30, 31, 32, 33, 37, 39, 41], 20: [3, 5, 11, 12, 13, 14, 15, 21, 22, 25, 27],
+                     21: [1, 13, 17, 19, 21, 22, 23, 24, 27, 28, 29, 30], 22: [5, 9, 15, 17, 18, 19],
+                     24: [14, 15, 16, 17, 20, 21, 22, 24, 28, 34, 36, 37, 38, 39, 41, 42, 43, 44, 45, 46, 48, 49, 51, 52, 53, 54, 55, 56, 57],
                      23: [5, 6, 7, 8, 9, 12, 13, 23, 24, 29, 30, 31]}      # file numbering; renumbered below
 PRELUDES_HOW = ("read from Ueli Raz's engraving (a PDF), repaired, then checked by ear against his own rendering and against "
                 "the recording by Sylvaine Billier and Martine Joste")
@@ -503,6 +506,7 @@ def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
         "form": "piano piece in two staves", "meter": bars[0]["time"], "composer": data.get("composer", ""), "level": level,
         "tuning": int(tuning), "source": how, "licence": "private use", "notes": [], "theory": {}, "phrases": [],
         "score": bars, "bars": len(bars),
+        "tempi": [[int(m["bar"]), float(m["bpm"])] for m in data.get("tempo") or [] if m.get("bar") and m.get("bpm")],
         **({"checked": checked(c["grade"], c["how"], c["listen"], c["doubtful"])} if (c := SCORE_CHECKS.get(slug)) else {}),
     }
 
@@ -596,15 +600,25 @@ def wyschnegradsky(path: Path):
                                 "than it reaches (in four_hand_bars no division between two hands would fit): nothing is left out there. "
                                 "Tell the player so before such a bar, take the upper line first, then break the chord or leave "
                                 "its inner notes out. In pedal_bars a hand has to let go of held notes (or use a sustain pedal).")
-        seconds = max(1.0, at * 60.0 / float((prelude.get("tempi") or [{"bpm": 80}])[0].get("bpm", 80) or 80))
+        # the tempo (quarter notes per minute) at the start of each bar where it changes; a change inside a bar counts for its bar
+        tempi: list[list] = []
+        for mark in sorted((m for m in prelude.get("tempi") or [] if "onset" in m), key=lambda m: m["onset"]):
+            file_bar = max((n for n in starts if starts[n] <= float(mark["onset"]) + 1e-6 and n in renumbered), default=None)
+            bpm = float(mark.get("bpm_quarter") or 0)
+            if file_bar is not None and bpm > 0 and (not tempi or tempi[-1][0] != renumbered[file_bar]):
+                tempi.append([renumbered[file_bar], round(bpm, 1)])
+        seconds = max(1.0, at * 60.0 / (tempi[0][1] if tempi else 80.0))
         density = len(prelude["notes"]) / seconds
         yield {
             "id": f"score/wyschnegradsky-prelude-{int(prelude['number']):02d}", "title": f"Prelude {prelude['number']} (24 Preludes op. 22)",
             "tradition": "composition", "mode": "24 notes per octave", "form": "piano piece in quarter-tones, two staves (upper = right hand, lower = left hand)",
             "meter": out[0]["time"], "composer": "Ivan Wyschnegradsky", "level": 3 if density < 3 else 4 if density < 6 else 5, "tuning": 24,
-            "source": "read from Ueli Raz's engraving of the Belaieff edition, checked against his rendering and against recordings; "
-                      "not proofread as a whole", "licence": "private use",
+            "source": ("proofread against the composer's own edition for one quarter-tone instrument (Belaieff 418); first read from "
+                       "Ueli Raz's engraving of the two-piano version" if prelude.get("hands_from") else
+                       "read from Ueli Raz's engraving of the two-piano version and checked against recordings; not yet proofread "
+                       "against the composer's edition throughout"), "licence": "private use",
             "notes": [], "theory": {}, "phrases": [], "score": out, "bars": len(out),
+            "tempi": tempi,
             "checked": checked(grade, PRELUDES_PROOFREAD if prelude.get("hands_from") else PRELUDES_HOW, PRELUDES_LISTEN, doubtful),
             "two_hands": two_hands,
         }

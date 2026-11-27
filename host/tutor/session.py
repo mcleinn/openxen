@@ -148,6 +148,7 @@ class Tutor:
         self.tabla = tabla                      # the same for the tabla patch
         self.tanpura = tanpura                  # the drone's own instrument (host/synth/tanpura.scd), if one is set up
         self._drone: tuple[threading.Thread, threading.Event, dict] | None = None    # a sounding drone: thread, its stop, what it plays
+        self._playing: tuple[threading.Thread, threading.Event, dict] | None = None  # a piece being played: thread, its stop, what it plays
         self._keyboard: Keyboard | None = None
         self._kb_lock = threading.Lock()
         self._activity = threading.Lock()   # one demo / listen / exercise at a time
@@ -169,6 +170,8 @@ class Tutor:
     def _forget_keyboard(self) -> None:
         with self._kb_lock:
             self._keyboard = None
+        if self._playing:               # so do the keys of a piece being played
+            self._playing[1].set()
         if self._drone:                 # its keys belong to the keyboard that is gone
             self._drone[1].set()
 
@@ -2149,12 +2152,155 @@ class Tutor:
         """End whatever is running and switch the tutor's lights off."""
         self._cancel.set()
         self._drone_end()
+        self._play_end()
         try:
             self.client.notes(off=[addr for addr, _ in self.lights.lit.values()])
         except XentoolError:
             pass
         self.lights.clear()
         return {"stopped": True}
+
+    # --- playing a piece of the library ---
+
+    def _play_end(self) -> bool:
+        playing, self._playing = self._playing, None
+        if not playing:
+            return False
+        playing[1].set()
+        if playing[0] is not threading.current_thread():
+            playing[0].join(timeout=2.0)
+        return True
+
+    def _play_run(self, moments: list[tuple[float, list]], lights: bool, stop: threading.Event) -> None:
+        """Strike each moment at its time, counted from one start: no step waits on the one before,
+        so a slow call does not make the rest late. Every note is sent with its own length."""
+        start = time.perf_counter()
+        sounding: set = set()
+        try:
+            for at, notes in moments:
+                if stop.wait(max(0.0, start + at - time.perf_counter())):
+                    break
+                try:
+                    self.client.notes(on=[(addr, velocity, ms) for addr, velocity, ms in notes])
+                    sounding.update(addr for addr, _, _ in notes)
+                    if lights:
+                        self.client.overlay(set={addr: (255, 255, 255) for addr, _, _ in notes}, clear="all", dim_base=0.15)
+                except Exception:           # a keyboard that is away for a moment must not end the piece
+                    pass
+            else:
+                stop.wait(max((ms for _, notes in moments[-1:] for _, _, ms in notes), default=0) / 1000.0)
+        finally:
+            if stop.is_set():
+                try:
+                    self.client.notes(off=list(sounding))
+                except Exception:
+                    pass
+            if lights:
+                try:
+                    self.client.overlay(clear="all", dim_base=1.0)
+                except Exception:
+                    pass
+            if self._playing and self._playing[0] is threading.current_thread():
+                self._playing = None
+
+    def play_piece(self, action: str = "start", id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both",
+                   speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False, lights: bool = False,
+                   octave: int | None = None) -> dict:
+        """Play a composition of the library from one bar to another as it is written: every note at
+        its time and with its own length, at the piece's tempo or a share of it. start | stop | status."""
+        action = action.strip().lower()
+        if action == "stop":
+            return {"playing": "stopped" if self._play_end() else "nothing was playing"}
+        alive = self._playing if self._playing and self._playing[0].is_alive() else None
+        if action == "status":
+            return {"playing": "yes", **alive[2]} if alive else {"playing": "no"}
+        if action != "start":
+            raise TutorError("action must be one of: start, stop, status")
+        self._need_player("play_piece")
+        if not id:
+            raise TutorError("give the id of a piece (library search tradition=composition lists them)")
+        piece = self.music.piece(id)
+        if not piece.get("score"):
+            raise TutorError("play_piece plays compositions in two staves (tradition composition); for other pieces pass their phrases to demo")
+        kb = self.keyboard
+        t = kb.tuning
+        bars = piece["score"]
+        if piece["tuning"] != t.edo and not nearest:
+            raise TutorError(f"this piece is written in {piece['tuning']} notes per octave and the keyboard is in {t.edo}. Switch with tuning to "
+                             f"{piece['tuning']}, or ask again with nearest=true to hear it on the nearest notes here (an approximation).")
+        to_bar = len(bars) if to_bar is None else to_bar
+        if not 1 <= from_bar <= to_bar <= len(bars):
+            raise TutorError(f"from_bar and to_bar must lie between 1 and {len(bars)}, from_bar first")
+        if part not in ("upper", "lower", "both"):
+            raise TutorError("part must be upper (right hand), lower (left hand) or both")
+        if not 0.1 <= speed <= 2:
+            raise TutorError("speed must be between 0.1 (a tenth of the tempo) and 2")
+        written = tuning_for(piece["tuning"]) if piece["tuning"] != t.edo else None
+
+        def here(step: int) -> int:
+            return t.retuned_from(written, step)[0] if written else step
+
+        # transposing: the whole piece by octaves so that most of it has a key (or as asked); then single
+        # notes that still have none go to the nearest octave that has one
+        every = [here(s) for bar in bars for events in bar["staves"].values() for _, _, steps in events for s in steps]
+        shift = (self._fit_octaves(every) if octave is None else int(octave)) * t.edo
+        tempi = sorted(piece.get("tempi") or [])
+        chosen = bars[from_bar - 1:to_bar]
+        by_time: dict[float, list] = {}
+        folded: dict[str, str] = {}
+        silent: list[str] = []
+        at = 0.0
+        slowest = None
+        for bar in chosen:
+            marked = [bpm for n, bpm in tempi if n <= bar["n"]]
+            bpm = (float(tempo_bpm) if tempo_bpm else (marked[-1] if marked else 60.0) * speed)
+            if not 10 <= bpm <= 400:
+                raise TutorError(f"that gives {bpm:.0f} quarter notes per minute in bar {bar['n']}; choose a speed or tempo_bpm between 10 and 400")
+            slowest = bpm if slowest is None else min(slowest, bpm)
+            quarter = 60.0 / bpm
+            for staff, events in bar["staves"].items():
+                if part not in (staff, "both"):
+                    continue
+                for beat, dur, steps in events:
+                    for step in steps:
+                        pitch = here(step) + shift
+                        if not kb.keys_for_pitch(pitch):
+                            near = next((pitch + k * t.edo for k in (-1, 1, -2, 2, -3, 3) if kb.keys_for_pitch(pitch + k * t.edo)), None)
+                            if near is None:
+                                silent.append(t.label(pitch))
+                                continue
+                            folded[t.label(pitch)] = t.label(near)
+                            pitch = near
+                        key = kb.keys_for_pitch(pitch)[0]
+                        velocity = 84 if staff == "upper" else 68
+                        by_time.setdefault(round(at + beat * quarter, 4), []).append(((key.board, key.key), velocity, max(30, int(dur * quarter * 950))))
+            at += bar["length"] * quarter
+        moments = sorted(by_time.items())
+        if not moments:
+            raise TutorError("there is nothing to play in these bars for this part")
+        self._play_end()
+        told = {"piece": piece["title"], "bars": f"{from_bar}-{to_bar}" if to_bar > from_bar else str(from_bar), "part": part,
+                "seconds": round(at, 1), "notes": sum(len(n) for _, n in moments)}
+        if tempo_bpm or speed != 1:
+            told["tempo"] = f"{slowest:.0f} quarter notes per minute" + ("" if tempo_bpm else f" ({speed:g} of the piece's tempo)")
+        if shift:
+            told["moved"] = f"the whole piece {abs(shift) // t.edo} octave{'s' if abs(shift) != t.edo else ''} {'up' if shift > 0 else 'down'} to fit the keyboard"
+        if folded:
+            told["moved_single_notes"] = (f"{len(folded)} notes outside the keyboard are played an octave or more away: "
+                                          + ", ".join(f"{a} as {b}" for a, b in list(folded.items())[:8]) + (" ..." if len(folded) > 8 else ""))
+        if silent:
+            told["left_out"] = sorted(set(silent))
+        if written:
+            told["approximated"] = f"written for {piece['tuning']} notes per octave, played on the nearest notes of {t.edo}"
+        if piece.get("checked"):
+            told["transcription"] = piece["checked"]["grade"]
+        stop = threading.Event()
+        thread = threading.Thread(target=self._play_run, args=(moments, bool(lights), stop), name="tutor-play", daemon=True)
+        self._playing = (thread, stop, told)
+        thread.start()
+        return {"playing": "started", **told,
+                "note": "It plays by itself and this call has returned: talk over it, or wait the seconds given. play_piece action stop (or stop) "
+                        "ends it. To let the player try, give them the same bars with library get and run_exercise."}
 
     # --- demo ---
 
