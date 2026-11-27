@@ -175,7 +175,16 @@ you want them to play something now and wait for it.
   comes with `doubtful_here`, say that this bar is uncertain. To let the player HEAR a passage, use
   `play_piece` (bars from-to, `speed` 0.5 for half tempo, `part` for one hand): the server
   plays it with every note at its time and length, which `demo` cannot do for real music.
-  Use `library get` + `demo` when you teach the notes one step at a time. Where a bar comes
+  Use `library get` + `demo` when you teach the notes one step at a time. Before starting a
+  composition, read `on_this_keyboard` in its overview (`library get` with the id only): it
+  says how much of the piece has a key on the keyboard as it is, for both hands and for each
+  hand alone, and on which other tuning it would fit better. Tell the player plainly what is
+  possible ("with this keyboard the left hand's low notes are missing; the right hand is
+  complete"), and offer the tuning that fits. The piece may be moved as a whole by any
+  interval: on this keyboard that keeps every shape and fingering, so it counts as playable;
+  the result's `moved` says by how much. A step marked `grace` is a grace note; a step marked
+  `trill` starts a trill whose strokes follow written out: teach it as a trill between its two
+  notes. Where a bar comes
   with `two_readings`, the printed score and the recording differ on a note: say so, play
   both, and let the player choose.
 - **Ragas** come as outlines: the notes, ascent, descent, a characteristic phrase and the

@@ -778,7 +778,7 @@ def test_a_piece_is_played_from_bar_to_bar_with_its_own_lengths(tmp_path):
     fake = FakeXentool(sample_setup(31, (0, 1, 2, 3)))
     t = Tutor(fake, library=library)
     try:
-        out1 = t.play_piece(id="score/dont-take-five", from_bar=1, to_bar=1)
+        out1 = t.play_piece(id="score/dont-take-five", from_bar=1, to_bar=1, octave=0)        # octave=0: as written, no transposing
         assert out1["playing"] == "started" and out1["seconds"] == 0.5 and out1["notes"] == 5 and out1["bars"] == "1"
         t._playing[0].join(timeout=3)
         kb = t.keyboard
@@ -789,7 +789,7 @@ def test_a_piece_is_played_from_bar_to_bar_with_its_own_lengths(tmp_path):
         assert [a for a, _, _ in fake.sounded[:3]].count(addr("C4")) == 1 and t.play_piece("status") == {"playing": "no"}
         # half speed, the right hand only; the second bar has its own tempo and a note above the keyboard, which is played lower
         fake.sounded.clear()
-        out2 = t.play_piece(id="score/dont-take-five", from_bar=1, to_bar=2, part="upper", speed=0.5)
+        out2 = t.play_piece(id="score/dont-take-five", from_bar=1, to_bar=2, part="upper", speed=0.5, octave=0)
         assert out2["seconds"] == 3.0 and out2["notes"] == 4 and "0.5 of the piece's tempo" in out2["tempo"] and "moved_single_notes" in out2
         assert t.play_piece("status")["playing"] == "yes"
         time.sleep(0.3)
@@ -808,6 +808,41 @@ def test_a_piece_is_played_from_bar_to_bar_with_its_own_lengths(tmp_path):
     finally:
         other.stop()
         other.pump.stop()
+
+
+def test_what_of_a_piece_fits_the_keyboard_and_what_the_print_marks(tmp_path):
+    source, out = tmp_path / "src", tmp_path / "lib"
+    (source / "wyschnegradsky").mkdir(parents=True)
+    # one bar: a grace note, a trill written out in the right hand, a bass note far below any key
+    notes = [{"onset": 0.0, "dur": 0.125, "step": 100, "piano": 1, "bar": 1, "hand": "right", "grace": True}]
+    notes += [{"onset": 0.125 + 0.125 * i, "dur": 0.125, "step": 102 + 2 * (i % 2), "piano": 1, "bar": 1, "hand": "right", **({"trill": True} if i == 0 else {})}
+              for i in range(6)]
+    notes += [{"onset": 1.0, "dur": 3.0, "step": 110, "piano": 1, "bar": 1, "hand": "right"},
+              {"onset": 0.0, "dur": 4.0, "step": 96 - 24 * 7, "piano": 1, "bar": 1, "hand": "left"}]
+    prelude = {"number": 3, "tuning": 24, "bars": 1, "time": "4/4", "time_changes": [{"bar": 1, "time": "4/4"}], "notes": notes,
+               "hands_from": "op. 22a (Belaieff 418)"}
+    (source / "wyschnegradsky" / "preludes.json").write_text(json.dumps([prelude]), encoding="utf-8")
+    build.build(source, out)
+    library = lib.Library(out)
+    piece = library.piece("score/wyschnegradsky-prelude-03")
+    assert {(m["mark"], m["step"]) for m in piece["score"][0]["marks"]} == {("grace", 100), ("trill", 102)}
+    t = Tutor(FakeXentool(sample_setup(31, (0, 1, 2, 3))), library=library)
+    t.layouts_dir = tmp_path / "none"
+    try:
+        fit = t.library("get", id=piece["id"], nearest=True)["on_this_keyboard"]
+        assert fit["now"]["tuning"] == "31 notes per octave" and "cents off" in fit["now"]["approximation"]
+        assert fit["now"]["both hands"]["notes_with_a_key"] == "8 of 9 (88%)" and fit["now"]["both hands"]["bars_with_notes_outside"] == [1]
+        assert fit["now"]["right hand alone"]["notes_with_a_key"] == "8 of 8 (100%)" and "1 of 9 notes have no key" in fit["say"]
+        bar = t.library("get", id=piece["id"], phrase=1, part="both", nearest=True)
+        assert "grace" in bar["steps"][0] and "trill begins here" in bar["steps"][1]["trill"] and "5 short notes" in bar["steps"][1]["trill"]
+        assert len(bar["not_on_this_keyboard"]) == 1 and "left out" in bar["not_on_this_keyboard_note"]
+        t.demo(bar["steps"][:3], tempo_bpm=240, beats_per_step=1)          # the steps are playable: nothing without a key is in them
+        # any interval counts as transposing: a keyboard a few steps too high still takes the right hand complete
+        shift, covered = t._fit_shift([p + 3 for p in sorted(t.keyboard._by_pitch)[-20:]])
+        assert (shift, covered) == (-3, 20) and "steps down" in t._shift_words(shift) and t._shift_words(62) == "2 octaves up"
+    finally:
+        t.stop()
+        t.pump.stop()
 
 
 def test_the_real_collections_if_they_are_installed():

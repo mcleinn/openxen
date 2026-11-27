@@ -568,6 +568,9 @@ def wyschnegradsky(path: Path):
             event = staff.setdefault(beat, [beat, round(float(note["dur"]), 4), []])
             event[2].append(int(note["step"]))
             event[1] = max(event[1], round(float(note["dur"]), 4))
+            for mark in ("grace", "trill"):         # a grace note of the print; the first stroke of a trill written out
+                if note.get(mark):
+                    bar.setdefault("marks", []).append({"staff": "lower" if hand else "upper", "beat": beat, "step": int(note["step"]), "mark": mark})
             for other in note.get("also") or []:
                 bar["variants"].append({"staff": "lower" if hand else "upper", "beat": beat, "step": int(note["step"]),
                                         "source": note.get("source", "engraving"), "other": int(other["step"]),

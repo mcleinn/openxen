@@ -503,6 +503,14 @@ length and pitch (`tests/test_tutor_musicxml.py`). How microtonal notation is wr
 signs for which tuning, their MusicXML values, what the engraver draws) is in
 [microtonal-notation.md](microtonal-notation.md).
 
+What of a composition fits the keyboard: `library get` with the id only returns `on_this_keyboard`
+(`Tutor._piece_fit`): the share of notes that have a key now, for both hands and for each hand alone, the bars with
+notes outside, and the same for the other layouts the keyboard can be switched to (read from the layout files in
+`build/layouts`, for the modules that are connected). The whole piece may be transposed by any interval
+(`_fit_shift`), since on an isomorphic layout that keeps shapes and fingering; bars handed out for teaching and
+`play_piece` use the same shift. Notes that still have no key are left out of the steps and named. Grace notes
+and trills of the print are carried per bar (`marks`) and shown on the step.
+
 How these scores were transcribed and checked, which method fits which kind of source, and what went
 wrong, is in [score-transcription.md](score-transcription.md).
 

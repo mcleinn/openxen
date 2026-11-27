@@ -7,6 +7,8 @@ stay inside (`board.py`, `theory.py`).
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import collections
 import queue
 import re
@@ -147,6 +149,8 @@ class Tutor:
         self.mridangam = mridangam              # OSC sender to the mridangam patch, or None if there is none
         self.tabla = tabla                      # the same for the tabla patch
         self.tanpura = tanpura                  # the drone's own instrument (host/synth/tanpura.scd), if one is set up
+        self.layouts_dir = Path(__file__).resolve().parents[2] / "build" / "layouts"     # the layout files the keyboard can be switched to
+        self._layouts: dict | None = None
         self._drone: tuple[threading.Thread, threading.Event, dict] | None = None    # a sounding drone: thread, its stop, what it plays
         self._playing: tuple[threading.Thread, threading.Event, dict] | None = None  # a piece being played: thread, its stop, what it plays
         self._keyboard: Keyboard | None = None
@@ -170,6 +174,7 @@ class Tutor:
     def _forget_keyboard(self) -> None:
         with self._kb_lock:
             self._keyboard = None
+        self._layouts = None            # the connected modules may have changed
         if self._playing:               # so do the keys of a piece being played
             self._playing[1].set()
         if self._drone:                 # its keys belong to the keyboard that is gone
@@ -1177,6 +1182,130 @@ class Tutor:
 
     # --- library: pieces, ragas, patterns ---
 
+    def _fit_shift(self, pitches: list[int], have: set[int] | None = None, edo: int | None = None) -> tuple[int, int]:
+        """By how many steps to move these pitches so that most of them have a key, and how many
+        then have one. Any interval counts, not only octaves: on this keyboard a transposed
+        piece is the same shapes on other keys. Ties go to no move, then to whole octaves, then
+        to the smallest move."""
+        kb = self.keyboard
+        have = set(kb._by_pitch) if have is None else have
+        edo = kb.tuning.edo if edo is None else edo
+        counts = collections.Counter(pitches)
+        if not counts or not have:
+            return 0, 0
+        low, high = min(have) - max(counts), max(have) - min(counts)
+
+        def covered(shift: int) -> int:
+            return sum(c for p, c in counts.items() if p + shift in have)
+
+        best = max(range(low, high + 1), key=lambda s: (covered(s), s == 0, s % edo == 0, -abs(s)))
+        return best, covered(best)
+
+    def _shift_words(self, shift: int, edo: int | None = None) -> str:
+        edo = self.keyboard.tuning.edo if edo is None else edo
+        way = "up" if shift > 0 else "down"
+        if shift % edo == 0:
+            k = abs(shift) // edo
+            return f"{k} octave{'s' if k != 1 else ''} {way}"
+        return f"{abs(shift)} steps {way} ({abs(shift) * 1200 / edo:.0f} cents: every note by the same interval, so shapes and fingering stay)"
+
+    def _layout_pitches(self) -> dict[str, tuple[int, set[int]]]:
+        """The other layouts this keyboard can be switched to: name -> (notes per octave, the
+        pitches its connected modules would have). Read from the layout files."""
+        if self._layouts is None:
+            import re
+            found: dict[str, tuple[int, set[int]]] = {}
+            boards = {k.board for k in self.keyboard.keys.values()}
+            folder = self.layouts_dir
+            for path in sorted(folder.glob("*.otn")) if folder and folder.is_dir() else []:
+                try:
+                    text = path.read_text(encoding="utf-8", errors="replace")
+                    edo = int(re.search(r"Edo=(\d+)", text).group(1))
+                    offset = int(re.search(r"PitchOffset=(-?\d+)", text).group(1))
+                    pitches: set[int] = set()
+                    for m in re.finditer(r"\[Board(\d+)\](.*?)(?=\[Board|\Z)", text, re.S):
+                        if int(m.group(1)) not in boards:
+                            continue
+                        notes = dict(re.findall(r"Key_(\d+)=(-?\d+)", m.group(2)))
+                        chans = dict(re.findall(r"Chan_(\d+)=(-?\d+)", m.group(2)))
+                        pitches |= {(int(chans[k]) - 1) * edo + int(v) + offset for k, v in notes.items() if int(chans.get(k, 0)) >= 1}
+                    if pitches:
+                        found[path.stem] = (edo, pitches)
+                except (AttributeError, ValueError, OSError):
+                    continue
+            self._layouts = found
+        return self._layouts
+
+    def _piece_fit(self, piece: dict) -> dict:
+        """How much of a composition can be played on the keyboard as it is now, and on the other
+        tunings it can be switched to. The whole piece may be transposed by any interval."""
+        kb = self.keyboard
+        t = kb.tuning
+        bars = piece["score"]
+        own = tuning_for(piece["tuning"])
+
+        def steps_of(part: str) -> list[tuple[int, int]]:      # (bar, step in the piece's tuning)
+            return [(bar["n"], s) for bar in bars for staff, events in bar["staves"].items() if part in (staff, "both")
+                    for _, _, steps in events for s in steps]
+
+        def fit(target, have: set[int], part: str) -> tuple[int, int, int, list[int]]:
+            notes = steps_of(part)
+            pitches = [target.retuned_from(own, s)[0] if target.edo != own.edo else s for _, s in notes]
+            shift, covered = self._fit_shift(pitches, have, target.edo)
+            outside = sorted({bar for (bar, _), p in zip(notes, pitches) if p + shift not in have})
+            return shift, covered, len(pitches), outside
+
+        def words(target, have: set[int]) -> dict:
+            out = {}
+            for part, name in (("both", "both hands"), ("upper", "right hand alone"), ("lower", "left hand alone")):
+                shift, covered, total, outside = fit(target, have, part)
+                if not total:
+                    continue
+                entry = {"notes_with_a_key": f"{covered} of {total} ({100 * covered // total}%)"}
+                if shift:
+                    entry["transposed"] = self._shift_words(shift, target.edo)
+                if outside:
+                    entry["bars_with_notes_outside"] = (outside if len(outside) <= 12 else
+                                                        f"{len(outside)} of {len(bars)} bars, the first: {', '.join(map(str, outside[:8]))}")
+                out[name] = entry
+            return out
+
+        now = words(t, set(kb._by_pitch))
+        result = {"now": {"tuning": f"{t.edo} notes per octave", **now}}
+        if piece["tuning"] != t.edo:
+            worst = max((abs(t.retuned_from(own, s)[1]) for _, s in steps_of("both")), default=0.0)
+            result["now"]["approximation"] = f"the piece is written for {piece['tuning']} notes per octave; here on the nearest notes, up to {worst:.0f} cents off"
+        full_now = fit(t, set(kb._by_pitch), "both")
+        others = []
+        for name, (edo, have) in self._layout_pitches().items():
+            if edo == t.edo and have == set(kb._by_pitch):
+                continue
+            target = tuning_for(edo)
+            shift, covered, total, _ = fit(target, have, "both")
+            worst = 0.0 if edo == own.edo else max((abs(target.retuned_from(own, s)[1]) for _, s in steps_of("both")), default=0.0)
+            if worst <= 20:             # a tuning that is further off than that does not render the piece
+                others.append((edo != own.edo, -covered, worst, name, edo, shift, covered, total))
+        result["other_tunings"] = [
+            {"layout": name, "tuning": f"{edo} notes per octave", "both hands": f"{covered} of {total} ({100 * covered // total}%)",
+             **({"transposed": self._shift_words(shift, edo)} if shift else {}),
+             "pitch": "as written" if not approx else f"nearest notes, up to {worst:.0f} cents off"}
+            for approx, _, worst, name, edo, shift, covered, total in sorted(others)[:4]]
+        own_layouts = [o for o in others if not o[0]]
+        if full_now[1] == full_now[2] and piece["tuning"] == t.edo:
+            result["say"] = "Everything in this piece has a key on the keyboard as it is."
+        else:
+            parts = []
+            if full_now[1] < full_now[2]:
+                parts.append(f"With the keyboard as it is, {full_now[2] - full_now[1]} of {full_now[2]} notes have no key even with the best "
+                             f"transposition: tell the player before starting which bars cannot be played complete, or take one hand at a time "
+                             f"(see right hand alone, left hand alone).")
+            if piece["tuning"] != t.edo and own_layouts:
+                best = min(own_layouts)
+                parts.append(f"The piece is written for {piece['tuning']} notes per octave: switching the tuning to layout {best[3]} gives its real "
+                             f"pitches ({100 * best[6] // best[7]}% of the notes have a key there).")
+            result["say"] = " ".join(parts)
+        return result
+
     def _fit_octaves(self, pitches: list[int]) -> int:
         """How many octaves to move these pitches so that most of them have a key."""
         kb = self.keyboard
@@ -1677,8 +1806,10 @@ class Tutor:
         def here(step: int) -> tuple[int, float]:
             return t.retuned_from(written, step) if written else (step, 0.0)
 
-        every = [here(s)[0] for bar in bars for events in bar["staves"].values() for _, _, steps in events for s in steps]
-        shift = self._fit_octaves(every) * t.edo
+        wanted = part if part in ("upper", "lower") else "both"         # one hand alone may fit where both do not
+        every = [here(s)[0] for bar in bars for staff, events in bar["staves"].items() if wanted in (staff, "both")
+                 for _, _, steps in events for s in steps]
+        shift = self._fit_shift(every)[0]
         head = {"id": piece["id"], "title": piece["title"], "composer": piece.get("composer", ""), "written_for": piece["mode"],
                 "bars": len(bars), "level": piece["level"], "source": piece["source"]}
         if piece.get("checked"):
@@ -1689,8 +1820,9 @@ class Tutor:
                                     f"{worst:.0f} cents off, and notes that differ there may fall on one key here. Say so; switching the "
                                     f"tuning is better when the piece is the point.")
         if shift:
-            head["moved"] = f"{abs(shift) // t.edo} octave{'s' if abs(shift) != t.edo else ''} {'up' if shift > 0 else 'down'} to fit the keyboard"
+            head["moved"] = f"the whole piece {self._shift_words(shift)} to fit the keyboard" + ("" if wanted == "both" else " (for this hand alone)")
         if first is None:
+            head["on_this_keyboard"] = self._piece_fit(piece)
             metres, last = [], None
             for bar in bars:
                 if bar["time"] != last:
@@ -1720,15 +1852,35 @@ class Tutor:
                     for beat, _, steps in events:
                         moments.setdefault(round(at + beat, 4), set()).update(here(s)[0] + shift for s in steps)
             at += bar["length"]
+        # what the print marks on a note: a grace note, the first stroke of a trill that the file holds written out
+        marked: dict[tuple[float, int], str] = {}
+        at_bar = 0.0
+        for bar in chosen:
+            for m in bar.get("marks", []):
+                if part in (m["staff"], "both"):
+                    marked[(round(at_bar + m["beat"], 4), here(m["step"])[0] + shift)] = m["mark"]
+            at_bar += bar["length"]
+        # a note without a key is left out of the steps (they must be playable) and named
+        missing = [t.label(p) for when in sorted(moments) for p in sorted(moments[when]) if p not in kb._by_pitch]
+        moments = {when: {p for p in pitches if p in kb._by_pitch} for when, pitches in moments.items()}
+        moments = {when: pitches for when, pitches in moments.items() if pitches}
         times = sorted(moments)
-        steps, missing = [], []
+        steps = []
         for i, when in enumerate(times):
             pitches = sorted(moments[when])
-            missing.extend(t.label(p) for p in pitches if p not in kb._by_pitch)
             length = round((times[i + 1] if i + 1 < len(times) else at) - when, 3)
             step = {"notes": [t.label(p) for p in pitches]} if len(pitches) > 1 else {"note": t.label(pitches[0])}
             if length != 1:
                 step["beats"] = length
+            marks = {marked.get((when, p)) for p in pitches}
+            if marks == {"grace"}:
+                step["grace"] = "a grace note: small, quick, just before the next note; not counted in the beat"
+            if "trill" in marks:
+                run = 1
+                while i + run < len(times) and round(times[i + run] - times[i + run - 1], 4) == round(times[i + 1] - when, 4):
+                    run += 1
+                step["trill"] = (f"a trill begins here: the print has a trill sign, the next {run - 1} short notes are its strokes written out. "
+                                 f"Teach it as a trill between its two notes, not stroke by stroke.")
             steps.append(step)
         if times and times[0] > 0:
             steps.insert(0, {"rest": True, "beats": times[0]})
@@ -1761,6 +1913,8 @@ class Tutor:
                      "steps": steps})
         if missing:
             head["not_on_this_keyboard"] = list(dict.fromkeys(missing))
+            head["not_on_this_keyboard_note"] = ("These notes of the bar have no key on the keyboard as it is and are left out of the steps. "
+                                                 "Tell the player; library get without a bar says what fits on which tuning.")
         head["note"] = ("Pass steps to demo (lengths are in 'beats', one beat = a quarter note), then run_exercise; fingering gives the fingers. "
                         + (f"Next: bar {last_bar + 1}." if last_bar < len(bars) else "This is the last bar."))
         return head
@@ -2243,7 +2397,7 @@ class Tutor:
         # transposing: the whole piece by octaves so that most of it has a key (or as asked); then single
         # notes that still have none go to the nearest octave that has one
         every = [here(s) for bar in bars for events in bar["staves"].values() for _, _, steps in events for s in steps]
-        shift = (self._fit_octaves(every) if octave is None else int(octave)) * t.edo
+        shift = self._fit_shift(every)[0] if octave is None else int(octave) * t.edo
         tempi = sorted(piece.get("tempi") or [])
         chosen = bars[from_bar - 1:to_bar]
         by_time: dict[float, list] = {}
@@ -2284,7 +2438,7 @@ class Tutor:
         if tempo_bpm or speed != 1:
             told["tempo"] = f"{slowest:.0f} quarter notes per minute" + ("" if tempo_bpm else f" ({speed:g} of the piece's tempo)")
         if shift:
-            told["moved"] = f"the whole piece {abs(shift) // t.edo} octave{'s' if abs(shift) != t.edo else ''} {'up' if shift > 0 else 'down'} to fit the keyboard"
+            told["moved"] = f"the whole piece {self._shift_words(shift)} to fit the keyboard"
         if folded:
             told["moved_single_notes"] = (f"{len(folded)} notes outside the keyboard are played an octave or more away: "
                                           + ", ".join(f"{a} as {b}" for a, b in list(folded.items())[:8]) + (" ..." if len(folded) > 8 else ""))
