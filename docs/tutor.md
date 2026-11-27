@@ -502,6 +502,9 @@ length and pitch (`tests/test_tutor_musicxml.py`). How microtonal notation is wr
 signs for which tuning, their MusicXML values, what the engraver draws) is in
 [microtonal-notation.md](microtonal-notation.md).
 
+How these scores were transcribed and checked, which method fits which kind of source, and what went
+wrong, is in [score-transcription.md](score-transcription.md).
+
 ## Layouts for any tuning
 
 `host/layouts/isomorphic.py` generates a Bosanquet-style layout for any number of notes per octave
