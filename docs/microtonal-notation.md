@@ -382,3 +382,13 @@ print(pages, score.warnings)
   needs the tutor's synth beside it, or MIDI with pitch bend written by us.
 - **Layout.** One page size and staff size per kind of sheet; no control over system breaks, and
   text marks do not make room for themselves.
+
+## The preludes in ups-and-downs notation
+
+`python -m tutor.scores.musicxml --all --updown` also writes every prelude with both pianos at sounding
+pitch, each note named as xenharmlib's `UpDownNotation` names it in 24 notes per octave (`updown_note`,
+through `theory.Tuning.name`): C, ^C, C#, vD, D ... An arrow is one step (a quarter-tone), a sharp two.
+xenharmlib's first name uses sharps only and never more than one arrow, so the only signs needed are
+`natural-up` and `natural-down` (`<alter>` 0.5 and -0.5) next to the plain sharp, all of which Verovio
+draws. Files: `prelude_NN_updown.*` and `preludes_as_read_updown.pdf`. These are the names the tutor
+speaks, so this is the sheet that matches a lesson.
