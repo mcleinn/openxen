@@ -456,7 +456,7 @@ PRELUDES_UNVERIFIED = {2, 3, 4, 6, 10, 23}
 PRELUDES_DOUBTFUL = {3: [20], 5: [44, 45], 7: [18], 9: [23, 28, 29], 10: [1], 11: [8], 17: [19, 21], 21: [22], 23: [24]}
 PRELUDES_HOW = ("read from Ueli Raz's engraving (a PDF), repaired, then checked by ear against his own rendering and against "
                 "the recording by Sylvaine Billier and Martine Joste")
-PRELUDES_LISTEN = "Sylvaine Billier and Martine Joste, 24 Preludes op. 22 (col legno); two pianos, of which upper and lower are one each"
+PRELUDES_LISTEN = "Sylvaine Billier and Martine Joste, 24 Preludes op. 22 (col legno; played there on two pianos tuned a quarter-tone apart)"
 
 
 def checked(grade: str, how: str, listen: str, doubtful: list[int]) -> dict:
@@ -513,8 +513,11 @@ def wyschnegradsky(path: Path):
     """Ivan Wyschnegradsky, 24 Preludes op. 22 for two pianos a quarter-tone apart: a list of
     preludes, each with notes `{"onset", "dur", "step" (24 per octave, C4 = 96), "piano", "bar"}`
     and its time signatures. Read from Ueli Raz's engraving (see reference/music/wyschnegradsky);
-    repaired and checked against recordings, not proofread as a whole. Piano I becomes the upper
-    part and piano II (a quarter-tone lower) the lower part. `zero_length_bars` are barlines the
+    repaired and checked against recordings, not proofread as a whole. The two pianos were the
+    composer's way to get quarter-tones from ordinary instruments; here both are merged into one
+    quarter-tone instrument and the notes divided between the hands by pitch (the rule of the
+    sheets, `scores.musicxml.choose_staves`): upper = right hand, lower = left hand. The tutor
+    never sees the two-piano layout. `zero_length_bars` are barlines the
     reader counted that are no bars (a time signature announced at the end of a system): they are
     left out and the bars renumbered, which gives the engraving's own bar numbers. A note with
     two readings (`source`, `also`) keeps both, as in the other scores."""
@@ -537,17 +540,20 @@ def wyschnegradsky(path: Path):
             at += lengths[n]
         bars = {n: {"n": n, "time": time_of(n), "length": round(lengths[n], 4), "staves": {"upper": {}, "lower": {}}, "variants": []}
                 for n in starts if n not in empty}
-        for note in prelude["notes"]:
-            bar = bars.get(note["bar"])
-            if bar is None or float(note["dur"]) <= 0:
-                continue
+        from fractions import Fraction
+        from .scores.musicxml import choose_staves
+        sounding = sorted((n for n in prelude["notes"] if n["bar"] in bars and float(n["dur"]) > 0), key=lambda n: (n["onset"], n["step"]))
+        hands = choose_staves([(Fraction(n["onset"]).limit_denominator(960), Fraction(n["onset"] + n["dur"]).limit_denominator(960),
+                                (int(n["step"]) + 1) // 2) for n in sounding])
+        for note, hand in zip(sounding, hands):
+            bar = bars[note["bar"]]
             beat = round(max(0.0, float(note["onset"]) - starts[note["bar"]]), 4)
-            staff = bar["staves"]["upper" if note["piano"] == 1 else "lower"]
+            staff = bar["staves"]["lower" if hand else "upper"]
             event = staff.setdefault(beat, [beat, round(float(note["dur"]), 4), []])
             event[2].append(int(note["step"]))
             event[1] = max(event[1], round(float(note["dur"]), 4))
             for other in note.get("also") or []:
-                bar["variants"].append({"staff": "upper" if note["piano"] == 1 else "lower", "beat": beat, "step": int(note["step"]),
+                bar["variants"].append({"staff": "lower" if hand else "upper", "beat": beat, "step": int(note["step"]),
                                         "source": note.get("source", "engraving"), "other": int(other["step"]),
                                         "other_source": other.get("source", "recording")})
         out = []
@@ -567,7 +573,7 @@ def wyschnegradsky(path: Path):
         density = len(prelude["notes"]) / seconds
         yield {
             "id": f"score/wyschnegradsky-prelude-{int(prelude['number']):02d}", "title": f"Prelude {prelude['number']} (24 Preludes op. 22)",
-            "tradition": "composition", "mode": "24 notes per octave", "form": "two pianos a quarter-tone apart (upper = piano I, lower = piano II)",
+            "tradition": "composition", "mode": "24 notes per octave", "form": "piano piece in quarter-tones, two staves (upper = right hand, lower = left hand)",
             "meter": out[0]["time"], "composer": "Ivan Wyschnegradsky", "level": 3 if density < 3 else 4 if density < 6 else 5, "tuning": 24,
             "source": "read from Ueli Raz's engraving of the Belaieff edition, checked against his rendering and against recordings; "
                       "not proofread as a whole", "licence": "private use",

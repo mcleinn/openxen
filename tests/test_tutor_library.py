@@ -710,7 +710,7 @@ def test_a_score_in_two_staves_comes_bar_by_bar(tmp_path):
         other.pump.stop()
 
 
-def test_two_piano_preludes_become_two_parts(tmp_path):
+def test_two_piano_preludes_become_one_quarter_tone_instrument(tmp_path):
     source, out = tmp_path / "src", tmp_path / "lib"
     (source / "wyschnegradsky").mkdir(parents=True)
     # bar 2 is a barline the reader counted that is no bar: left out, so the third becomes bar 2
@@ -739,7 +739,9 @@ def test_two_piano_preludes_become_two_parts(tmp_path):
     assert (one["n"], two["n"]) == (1, 2) and "variants" not in two
     assert one["variants"] == [{"staff": "upper", "beat": 0.0, "step": 96, "source": "print", "other": 94, "other_source": "engraving"}]
     assert (one["time"], one["length"], two["time"], two["length"]) == ("5/4", 5.0, "4/4", 4.0)
-    assert one["staves"]["upper"] == [[0.0, 1.0, [96, 104]]] and one["staves"]["lower"] == [[1.0, 4.0, [95]]]      # piano II a quarter-tone lower
+    # both pianos together, divided between the hands by pitch and not by piano: the second piano's note joins the right hand
+    assert one["staves"]["upper"] == [[0.0, 1.0, [96, 104]], [1.0, 4.0, [95]]] and one["staves"]["lower"] == []
+    assert "two pianos" not in piece["form"] and "right hand" in piece["form"]
     assert two["staves"]["upper"] == [[0.0, 2.0, [110]]]                                                           # onset counted from its bar
 
 
