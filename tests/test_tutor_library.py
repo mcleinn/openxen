@@ -681,6 +681,7 @@ def test_a_score_in_two_staves_comes_bar_by_bar(tmp_path):
     try:
         head = t.library("get", id=entry["id"])
         assert head["bars"] == 2 and head["metre"] == ["bar 1: 3/4", "bar 2: 2/4"] and "steps" not in head
+        assert head["transcription"]["grade"] == "partly checked" and "doubtful_bars" in head["transcription"]
         assert "bar 2" in head["two_readings"] and "two_readings" not in t.library("get", id=entry["id"], phrase=1)
         (two,) = t.library("get", id=entry["id"], phrase=2)["two_readings"]
         assert two == {"bar": 2, "beat": 1.5, "hand": "right", "the print has": "G4 (18)", "given in steps": "the print's note",
@@ -722,6 +723,18 @@ def test_two_piano_preludes_become_two_parts(tmp_path):
     assert build.build(source, out) == {"scores": 1}
     piece = lib.Library(out).piece("score/wyschnegradsky-prelude-16")
     assert piece["tuning"] == 24 and piece["composer"] == "Ivan Wyschnegradsky" and piece["level"] == 3
+    # how far the transcription was checked travels with the piece: grade, what to listen to, what to say
+    check = piece["checked"]
+    assert check["grade"] == "well checked" and "Billier" in check["listen_to"] and "recording" in check["say"] and "doubtful_bars" not in check
+    assert lib.Library(out).search(tradition="composition")[0]["checked"] == "well checked"
+    t = Tutor(FakeXentool(sample_setup(24, (0, 1, 2, 3, 4))), library=lib.Library(out))
+    try:
+        assert t.library("get", id=piece["id"])["transcription"]["say"] == check["say"]
+        assert t.library("search", tradition="composition")["pieces"][0]["checked"] == "well checked"
+        given = t.library("get", id=piece["id"], phrase=1)["transcription"]
+        assert given["grade"] == "well checked" and "doubtful_here" not in given
+    finally:
+        t.pump.stop()
     one, two = piece["score"]
     assert (one["n"], two["n"]) == (1, 2) and "variants" not in two
     assert one["variants"] == [{"staff": "upper", "beat": 0.0, "step": 96, "source": "print", "other": 94, "other_source": "engraving"}]

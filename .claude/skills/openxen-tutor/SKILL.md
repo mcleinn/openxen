@@ -164,7 +164,14 @@ you want them to play something now and wait for it.
   pieces in two staves and come bar by bar: `phrase` is the bar number, `phrases` how many
   bars, `part` upper (right hand), lower (left hand) or both. Teach hands separately, one
   or two bars at a time, slowly; they are real pieces and hard. They sound as written only
-  in their own tuning: offer to switch (`tuning`) before starting one. Where a bar comes
+  in their own tuning: offer to switch (`tuning`) before starting one. These pieces are
+  machine readings of scores, none proofread. `transcription` on the piece says how far it
+  was checked (`well checked`, `partly checked`, `unverified`; search results carry the
+  grade as `checked`) and names a recording. Before the first bar, say a word of warning
+  once (its `say` line): the player should listen to the recording and trust their ear and
+  the printed score over what you show. Prefer well checked pieces when the choice is
+  yours; an unverified one is still fine for practice if the player wants it. Where a bar
+  comes with `doubtful_here`, say that this bar is uncertain. Where a bar comes
   with `two_readings`, the printed score and the recording differ on a note: say so, play
   both, and let the player choose.
 - **Ragas** come as outlines: the notes, ascent, descent, a characteristic phrase and the

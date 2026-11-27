@@ -1678,6 +1678,8 @@ class Tutor:
         shift = self._fit_octaves(every) * t.edo
         head = {"id": piece["id"], "title": piece["title"], "composer": piece.get("composer", ""), "written_for": piece["mode"],
                 "bars": len(bars), "level": piece["level"], "source": piece["source"]}
+        if piece.get("checked"):
+            head["transcription"] = dict(piece["checked"])
         if written:
             worst = max((abs(here(s)[1]) for bar in bars for events in bar["staves"].values() for _, _, steps in events for s in steps), default=0.0)
             head["approximated"] = (f"written for {piece['tuning']} notes per octave, played here on the nearest notes of {t.edo}: up to "
@@ -1733,6 +1735,13 @@ class Tutor:
                                      f"the {v['source']} has": t.label(here(v["step"])[0] + shift), "given in steps": f"the {v['source']}'s note",
                                      f"the {v['other_source']} has": t.label(here(v["other"])[0] + shift)})
         last_bar = chosen[-1]["n"]
+        if piece.get("checked"):
+            check = piece["checked"]
+            doubtful = [bar["n"] for bar in chosen if bar["n"] in check.get("doubtful_bars", [])]
+            head["transcription"] = {"grade": check["grade"], "means": check["means"], "listen_to": check["listen_to"]}
+            if doubtful:
+                head["transcription"]["doubtful_here"] = (f"bar{'s' if len(doubtful) != 1 else ''} {', '.join(map(str, doubtful))}: the check "
+                                                          f"disagreed with this reading or could not settle it. Say so before teaching it.")
         if readings:
             head["two_readings"] = readings
             head["two_readings_note"] = ("Here the sources of this transcription differ (the printed score, an engraving of it, or a "
@@ -1800,7 +1809,8 @@ class Tutor:
             shown = found[:max(1, min(limit, 30))]
             return {"matches": len(found), "pieces": [
                 {"id": e["id"], "title": e["title"], "mode": e["mode"], "form": e["form"], "meter": e["meter"], "level": e["level"],
-                 "notes": e["notes"], "phrases": e["phrases"], **({"bars": e["bars"]} if e.get("bars") else {})} for e in shown],
+                 "notes": e["notes"], "phrases": e["phrases"], **({"bars": e["bars"]} if e.get("bars") else {}),
+                 **({"checked": e["checked"]} if e.get("checked") else {})} for e in shown],
                 "note": "easiest and shortest first" + ("; narrow the search for others" if len(found) > len(shown) else "")}
 
         if action == "get":

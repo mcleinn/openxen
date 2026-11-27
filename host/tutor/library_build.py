@@ -428,6 +428,43 @@ SCORES = [
     ("woyten/final/ephemeral_happiness.json", "ephemeral-happiness", 4, "optical recognition of the score, accidentals revised"),
 ]
 
+# How far each transcription was checked: this project's own judgement from the verification notes kept with
+# each piece (reference/music/*/VERIFY.md, REPAIR.md, REPORT.md, verification_per_bar.txt). Three grades:
+#   well checked  most notes confirmed against a recording, hardly any contradicted
+#   partly checked  most notes confirmed, known doubtful bars
+#   unverified    a recording could not confirm most notes, or contradicts many that nobody looked into
+# None of them is proofread by a person. `doubtful` are bar numbers as the file counts them.
+CHECK_WORDS = {
+    "well checked": "Most notes were confirmed against a recording; single wrong notes are still possible.",
+    "partly checked": "Most notes were confirmed against a recording, but some bars are doubtful.",
+    "unverified": "A machine reading that recordings could not confirm for most notes; expect wrong notes.",
+}
+CHECK_SAY = ("Tell the player once, before starting: this is a machine reading of the score, not a proofread edition; "
+             "listen to a recording of the piece and trust your ear and the printed score over what is shown here. "
+             "Rhythm inside a bar, ties and grace notes are less certain than the notes themselves.")
+SCORE_CHECKS = {
+    "dont-take-five": {"grade": "partly checked", "doubtful": [65, 87],
+                       "how": "read exactly from the engraving's vector PDF (every bar adds up, all symbols accounted for); not compared with a recording",
+                       "listen": "Woyten, \"Don't Take Five\" (the composer's own recording)"},
+    "ephemeral-happiness": {"grade": "well checked", "doubtful": [107, 108, 184, 185, 186, 187, 188, 189, 190],
+                            "how": "optical reading of the score; pitches checked note by note against the composer's recording (65 % confirmed, "
+                                   "29 % hidden behind other notes, 2 contradicted); rhythm checked by bar sums only; the last seven bars rest on the image alone",
+                            "listen": "Woyten, \"Ephemeral Happiness\" (the composer's own recording)"},
+}
+PRELUDES_WELL = {7, 14, 16, 20, 22, 24}
+PRELUDES_UNVERIFIED = {2, 3, 4, 6, 10, 23}
+PRELUDES_DOUBTFUL = {3: [20], 5: [44, 45], 7: [18], 9: [23, 28, 29], 10: [1], 11: [8], 17: [19, 21], 21: [22], 23: [24]}
+PRELUDES_HOW = ("read from Ueli Raz's engraving (a PDF), repaired, then checked by ear against his own rendering and against "
+                "the recording by Sylvaine Billier and Martine Joste")
+PRELUDES_LISTEN = "Sylvaine Billier and Martine Joste, 24 Preludes op. 22 (col legno); two pianos, of which upper and lower are one each"
+
+
+def checked(grade: str, how: str, listen: str, doubtful: list[int]) -> dict:
+    out = {"grade": grade, "means": CHECK_WORDS[grade], "how": how, "listen_to": listen, "say": CHECK_SAY}
+    if doubtful:
+        out["doubtful_bars"] = sorted(set(doubtful))
+    return out
+
 
 def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
     data = json.loads(path.read_text(encoding="utf-8"))
@@ -458,6 +495,7 @@ def score_piece(path: Path, slug: str, level: int, how: str) -> dict | None:
         "form": "piano piece in two staves", "meter": bars[0]["time"], "composer": data.get("composer", ""), "level": level,
         "tuning": int(tuning), "source": how, "licence": "private use", "notes": [], "theory": {}, "phrases": [],
         "score": bars, "bars": len(bars),
+        **({"checked": checked(c["grade"], c["how"], c["listen"], c["doubtful"])} if (c := SCORE_CHECKS.get(slug)) else {}),
     }
 
 
@@ -513,13 +551,18 @@ def wyschnegradsky(path: Path):
                                         "source": note.get("source", "engraving"), "other": int(other["step"]),
                                         "other_source": other.get("source", "recording")})
         out = []
+        renumbered: dict[int, int] = {}
         for n in sorted(bars):
             bar = bars[n]
             bar["staves"] = {name: [[b, d, sorted(set(s))] for b, d, s in (events[k] for k in sorted(events))] for name, events in bar["staves"].items()}
-            bar["n"] = len(out) + 1
+            renumbered[n] = bar["n"] = len(out) + 1
             if not bar["variants"]:
                 del bar["variants"]
             out.append(bar)
+        number = int(prelude["number"])
+        grade = "well checked" if number in PRELUDES_WELL else "unverified" if number in PRELUDES_UNVERIFIED else "partly checked"
+        doubtful = PRELUDES_DOUBTFUL.get(number, []) + [u["bar"] for u in prelude.get("uncertain") or [] if isinstance(u.get("bar"), int)]
+        doubtful = [renumbered[b] for b in doubtful if b in renumbered]
         seconds = max(1.0, at * 60.0 / float((prelude.get("tempi") or [{"bpm": 80}])[0].get("bpm", 80) or 80))
         density = len(prelude["notes"]) / seconds
         yield {
@@ -529,6 +572,7 @@ def wyschnegradsky(path: Path):
             "source": "read from Ueli Raz's engraving of the Belaieff edition, checked against his rendering and against recordings; "
                       "not proofread as a whole", "licence": "private use",
             "notes": [], "theory": {}, "phrases": [], "score": out, "bars": len(out),
+            "checked": checked(grade, PRELUDES_HOW, PRELUDES_LISTEN, doubtful),
         }
 
 
@@ -555,6 +599,8 @@ def build(source: Path = SOURCE, out: Path = OUT) -> dict:
                 entry.update(file=f"{collection}.jsonl", at=at, notes=len(sounding), phrases=len(piece["phrases"]))
                 if piece.get("changes") or piece.get("score"):
                     entry["bars"] = piece.get("bars", 0)
+                if piece.get("checked"):
+                    entry["checked"] = piece["checked"]["grade"]
                 if piece["tuning"] and sounding:
                     entry["low"], entry["high"] = min(sounding), max(sounding)
                 index.append(entry)

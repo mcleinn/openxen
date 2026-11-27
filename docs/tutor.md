@@ -445,6 +445,13 @@ score file keeps both: `{"step": 48, "source": "print", "also": [{"step": 47, "s
 "recording"}]}`. The library carries them per bar, and `library get` reports them as
 `two_readings` (bar, beat, hand, what each source has) in the overview and with the bar.
 
+Every transcribed score carries how far it was checked (`checked` in the piece, `transcription` in
+`library get`, the grade as `checked` in search results): `well checked`, `partly checked` or
+`unverified`, how it was checked, a recording to listen to, the bars known to be doubtful, and the
+warning the tutor gives once. The grades are this project's judgement from the verification notes
+kept with each piece (`SCORE_CHECKS`, `PRELUDES_*` in `library_build.py`): of the 24 preludes, 7, 14,
+16, 20, 22 and 24 are well checked, 2, 3, 4, 6, 10 and 23 unverified, the rest partly checked.
+
 ## Layouts for any tuning
 
 `host/layouts/isomorphic.py` generates a Bosanquet-style layout for any number of notes per octave
