@@ -30,6 +30,7 @@ def harmony_model_xen(quality: str) -> bool:
     return bool(_CHORDS.get(quality, {}).get("xen"))
 from . import harmony as harmony_model
 from . import percussion
+from . import playalong
 from . import voiceleading as voice_leading
 from . import xen_progressions as xen_model
 from . import rhythm as rhythm_model
@@ -2484,6 +2485,15 @@ class Tutor:
         return {"playing": "started", **told,
                 "note": "It plays by itself and this call has returned: talk over it, or wait the seconds given. play_piece action stop (or stop) "
                         "ends it. To let the player try, give them the same bars with library get and run_exercise."}
+
+    def play_along(self, id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both", mode: str = "click",
+                   speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False, count_in: int = 1, click: bool = True,
+                   accompany: bool = False, level: str = "beginner", pause_s: float = playalong.FOLLOW_PAUSE_S,
+                   progress: Progress | None = None) -> dict:
+        """The player plays bars of a composition in time and the rhythm is judged: with a click
+        (mode click) or at their own tempo (mode follow). All of it is in `playalong.py`."""
+        return playalong.run(self, id, from_bar, to_bar, part, mode, speed, tempo_bpm, nearest, count_in, click, accompany, level,
+                             pause_s, progress)
 
     # --- demo ---
 

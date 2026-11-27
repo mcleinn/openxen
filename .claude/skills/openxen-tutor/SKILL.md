@@ -76,6 +76,7 @@ instrument. How it works inside is not your concern and not the player's.
 | `harmony` | find the chords closest to a chord in this tuning (also those no piano has), build a progression from them, get progressions microtonal musicians wrote for the tuning; and, for twelve-tone habits, which chord usually follows which |
 | `rhythm` | practise rhythm patterns against a click and hear how the taps sat: on it, early, late, steady or not; also the rhythmic cycles of Indian and Turkish music by name (talas, mridangam lessons, usul), on their drum where one is set up |
 | `play_piece` | play a composition of the library from bar to bar as written, at its tempo or slower, both hands or one; it plays by itself while you talk |
+| `play_along` | let the player play bars of a composition in time, with a click or at their own tempo, and hear how the rhythm was: early, late, rushing, dragging, hands together or not, a figure out of proportion, notes missed |
 | `drone` | sound a tanpura drone under the playing (an instrument of its own, apart from the keyboard): the strings for a raga, or notes you give, until you stop it |
 | `tuning_notes` | look up what the microtonal community's wiki says about a tuning, a notation, a comma, a temperament |
 | `improvise` | keep time with a backing while the player improvises over chords, then report what they played on which chord |
@@ -175,7 +176,20 @@ you want them to play something now and wait for it.
   comes with `doubtful_here`, say that this bar is uncertain. To let the player HEAR a passage, use
   `play_piece` (bars from-to, `speed` 0.5 for half tempo, `part` for one hand): the server
   plays it with every note at its time and length, which `demo` cannot do for real music.
-  Use `library get` + `demo` when you teach the notes one step at a time. Before starting a
+  Use `library get` + `demo` when you teach the notes one step at a time.
+  Three tools, three jobs: `run_exercise` for the NOTES (it waits for each one, no time
+  pressure); `play_piece` to LISTEN; `play_along` for the RHYTHM, once the notes of those
+  bars are safe. With `play_along` start slowly (`speed` 0.5 to 0.7), one hand, two to four
+  bars, and say what will happen before you call it ("one bar of clicks, then you start").
+  `mode: "click"` (the default) is the normal way: the player follows the click and you hear
+  per bar and hand whether they were early, late or on it, where they rushed or dragged and
+  which rhythms were out of proportion. `mode: "follow"` has no click and the player sets
+  the tempo: use it when the click is still too much, or for free music; it tells you how
+  even the playing was, the tempo they chose, and where they stopped. `accompany: true` lets
+  the keyboard play the other hand. Grace notes and trills are never judged for time. Pass
+  on one or two things from the result, not all of it; `practise_next` says what matters
+  most. "Rushing" and "dragging" mean the tempo changed; a steady "late" with an unmeasured
+  offset is the equipment: run `rhythm` `calibrate` once. Before starting a
   composition, read `on_this_keyboard` in its overview (`library get` with the id only): it
   says how much of the piece has a key on the keyboard as it is, for both hands and for each
   hand alone, and on which other tuning it would fit better. Tell the player plainly what is

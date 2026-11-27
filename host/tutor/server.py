@@ -76,7 +76,7 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
             result = fn(*args, **kwargs)
         except EXPECTED as e:
             raise ToolError(str(e)) from e
-        if isinstance(result, dict) and fn.__name__ not in ("played", "listen", "run_exercise"):
+        if isinstance(result, dict) and fn.__name__ not in ("played", "listen", "run_exercise", "play_along"):
             unheard = tutor.unheard()
             if unheard:
                 result["unheard"] = (f"the player has played {unheard} note{'' if unheard == 1 else 's'} "
@@ -340,6 +340,35 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         before and after practising it; use library get + demo when you want to teach the
         notes step by step with fingers and names."""
         return guard(tutor.play_piece, action, id, from_bar, to_bar, part, speed, tempo_bpm, nearest, lights, octave)
+
+    @server.tool()
+    async def play_along(ctx: Context, id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both",
+                         mode: str = "click", speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False,
+                         count_in: int = 1, click: bool = True, accompany: bool = False, level: str = "beginner",
+                         pause_s: float = 6.0) -> str:
+        """The player plays bars of a composition of the library IN TIME, and you get their rhythm
+        judged against the score (run_exercise judges only the notes; play_piece only plays).
+        `id`, `from_bar`, `to_bar`, `part` (upper = right hand, lower = left hand, both),
+        `speed` (share of the piece's tempo; start at 0.5 to 0.7) or `tempo_bpm`, `nearest` as
+        in play_piece. `mode` "click" (default): after `count_in` bars of clicks (0 to 2) the
+        click goes on at the tempo and the player follows it; click=false leaves only the
+        count-in. `mode` "follow": no click, the player starts when ready and sets the tempo;
+        the take ends at the last note, or when they stop for `pause_s` seconds. `accompany`
+        (with part upper or lower): the keyboard plays the other hand, in follow mode waiting
+        for the player. It waits until the bars are over (at most 60 seconds; `continue_with`
+        says where to go on); stop ends it. Tell the player before calling what will happen:
+        "one bar of clicks, then you start". Result: `notes` (right, missing, wrong, extra and
+        where), `timing` (how many notes per band, as in rhythm), `sits` (early, late or on it
+        against the click) or `evenness` (follow), `tempo_played` (rushing, dragging, bars
+        that ran away, the tempo against the target), `by_bar` (per bar and hand: early, late,
+        on it), `hands` (together or not), `rhythms` (figures played out of proportion, such
+        as a dotted rhythm played even), `chords`, `held`, `stops`, `ornaments` (grace notes
+        and trills are never judged for time) and `practise_next`. Early and late are measured
+        after taking the player's offset away (rhythm action calibrate, once). Teach the notes
+        first with run_exercise; use this when they are safe."""
+        return await blocking(ctx, tutor.play_along, id=id, from_bar=from_bar, to_bar=to_bar, part=part, mode=mode, speed=speed,
+                              tempo_bpm=tempo_bpm, nearest=nearest, count_in=count_in, click=click, accompany=accompany, level=level,
+                              pause_s=pause_s)
 
     @server.tool()
     def drone(action: str = "status", raga: str | None = None, root: str | None = None, notes: list[str] | None = None,
