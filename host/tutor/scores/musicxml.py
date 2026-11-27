@@ -1336,6 +1336,9 @@ def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, lo
                 number = int(prelude["number"])
                 score = prelude_score(prelude, sounding=mode == "sounding", doubtful=by_prelude.get(number, ()), updown=mode == "updown")
                 score.header = list(PRELUDE_HEADER)
+                if prelude.get("hands_from"):       # read note by note against the composer's edition since
+                    score.header[0] = ("Our reading, proofread against the composer's edition for one quarter-tone instrument (Belaieff 418); "
+                                       "first read from Ueli Raz's engraving. Not an edition: compare with the original.")
                 if mode == "sounding":
                     score.header[2] = "Piano II at sounding pitch (same letters as written, a quarter-tone lower). " + score.header[2]
                 if mode == "updown":
