@@ -166,6 +166,41 @@ def offset_from_taps(clicks: list[float], taps: list[float], skip: int = 4) -> t
     return statistics.median(kept), (statistics.pstdev(kept) if len(kept) > 1 else 0.0), len(kept)
 
 
+def band_of(error_ms: float, level: str = "beginner") -> str:
+    """The grade of one note that lies this far from its place: on it, close, near or off."""
+    return next((g for g, limit in zip(GRADES, BANDS[level]) if abs(error_ms) <= limit), "off")
+
+
+def lean(mean_ms: float, level: str = "beginner") -> str:
+    """Which side several notes lie on together: "early", "late" or "on it". A mean counts from
+    half the on-it band: single notes scatter, their mean does not."""
+    half = BANDS[level][0] / 2
+    return "early" if mean_ms < -half else "late" if mean_ms > half else "on it"
+
+
+def spread_over_bands(errors: list[float], level: str = "beginner") -> dict:
+    """Errors in seconds as counts per grade, with their mean and spread in milliseconds."""
+    out: dict = {g: 0 for g in GRADES}
+    out["off"] = 0
+    for e in errors:
+        out[band_of(e * 1000, level)] += 1
+    if errors:
+        out["mean_ms"] = round(statistics.fmean(errors) * 1000)
+        out["spread_ms"] = round(statistics.pstdev(errors) * 1000) if len(errors) > 1 else 0
+    return out
+
+
+def drift_ms(at: list[float], errors: list[float]) -> float:
+    """By how many milliseconds the error grew from the first to the last of these notes
+    (positive: falling behind), from a straight line through them."""
+    if len(at) < 2:
+        return 0.0
+    mx, my = statistics.fmean(at), statistics.fmean(errors)
+    denominator = sum((x - mx) ** 2 for x in at)
+    slope = sum((x - mx) * (y - my) for x, y in zip(at, errors)) / denominator if denominator else 0.0
+    return slope * (at[-1] - at[0]) * 1000
+
+
 def grade(due: list[float], taps: list[float], offset: float = 0.0, level: str = "beginner") -> dict:
     """Match taps to the times they were due and judge them."""
     bands = BANDS[level]
@@ -181,23 +216,12 @@ def grade(due: list[float], taps: list[float], offset: float = 0.0, level: str =
         else:
             errors.append(None)
     hit = [e for e in errors if e is not None]
-    counts = {g: 0 for g in GRADES}
-    counts["off"] = 0
-    for e in hit:
-        ms = abs(e) * 1000
-        counts[next((g for g, limit in zip(GRADES, bands) if ms <= limit), "off")] += 1
-    out: dict = {"due": len(due), "played": len(hit), "missed": errors.count(None), "extra": len(free), **counts}
+    out: dict = {"due": len(due), "played": len(hit), "missed": errors.count(None), "extra": len(free), **spread_over_bands(hit, level)}
     if hit:
-        mean = statistics.fmean(hit) * 1000
-        out["mean_ms"] = round(mean)
-        out["spread_ms"] = round(statistics.pstdev(hit) * 1000) if len(hit) > 1 else 0
-        out["tendency"] = "ahead of the beat (rushing)" if mean < -bands[0] / 2 else "behind the beat (dragging)" if mean > bands[0] / 2 else "centred"
+        side = lean(out["mean_ms"], level)
+        out["tendency"] = {"early": "ahead of the beat (rushing)", "late": "behind the beat (dragging)"}.get(side, "centred")
         if len(hit) >= 6:       # does the error grow or shrink over the take?
-            xs = [t for t, e in zip(due, errors) if e is not None]
-            mx, my = statistics.fmean(xs), statistics.fmean(hit)
-            denominator = sum((x - mx) ** 2 for x in xs)
-            slope = sum((x - mx) * (y - my) for x, y in zip(xs, hit)) / denominator if denominator else 0.0
-            drift = slope * (xs[-1] - xs[0]) * 1000
+            drift = drift_ms([t for t, e in zip(due, errors) if e is not None], hit)
             if abs(drift) > bands[0]:
                 out["drift"] = f"{'falling behind' if drift > 0 else 'getting ahead'} by {abs(drift):.0f} ms over the take"
     out["errors_ms"] = [None if e is None else round(e * 1000) for e in errors]
