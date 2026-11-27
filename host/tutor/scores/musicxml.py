@@ -44,6 +44,8 @@ Command line (from `host/`):
     python -m tutor.scores.musicxml --all                 regenerate all sheets under reference/music/*/sheets
     python -m tutor.scores.musicxml --all --sounding      also the preludes with piano II at sounding pitch
     python -m tutor.scores.musicxml --all --updown        also the preludes in ups-and-downs notation (xenharmlib's names)
+    python -m tutor.scores.musicxml --all --composer      also the preludes spelled with the composer's quarter-tone signs
+                                                          (those whose scale is in positions.json)
     python -m tutor.scores.musicxml FILE.json [OUT.musicxml] [--pdf] [--sounding] [--prelude N]
 """
 from __future__ import annotations
@@ -1078,7 +1080,28 @@ def updown_note(step: int) -> Note:
     return Note(letter, octave, "natural-arrow-up" if up else "natural-arrow-down", alter=0.5 if up else -0.5)
 
 
-def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bool = False) -> Score:
+LETTER_STEP = {"C": 0, "D": 4, "E": 8, "F": 10, "G": 14, "A": 18, "B": 22}       # quarter-tones above C
+SHARP_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
+
+
+def spelled_name(step: int, scale: dict) -> str:
+    """A quarter-tone step (C4 = 96) spelled as the composer spells it: a note of the prelude's 13-note
+    scale as that scale is printed at its head (`scale`: pitch class 0-23 -> "F#t", see positions.json);
+    a note outside the scale by rule: the twelve ordinary keys with sharps, a quarter-tone key as the
+    key below it raised by a quarter-tone (t, or #t after a sharp)."""
+    pc = step % 24
+    name = scale.get(str(pc)) or scale.get(pc) or (SHARP_NAMES[pc // 2] + ("t" if pc % 2 else ""))
+    letter, suffix = name[0], name[1:]
+    raised = round(2 * ACCIDENTALS[NAME_SUFFIX[suffix]][0])
+    return f"{name}{(step - raised - LETTER_STEP[letter]) // 24}"
+
+
+def spelled_note(step: int, scale: dict) -> Note:
+    letter, accidental, octave = parse_name(spelled_name(step, scale))
+    return Note(letter, octave, accidental)
+
+
+def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bool = False, scale: dict | None = None) -> Score:
     """One prelude on four staves. Steps are quarter-tones (C4 = 96); piano II has the odd ones and is
     written, as in the two-piano edition, a quarter-tone above what sounds: in ordinary notation. With
     `sounding` piano II keeps the same letters and gets quarter-tone signs for the pitch that sounds
@@ -1150,7 +1173,7 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
                 letter, accidental, octave = spelled[(key + 1) // 2 if updown else key]
                 note = Note(letter, octave, accidental)
                 if updown:
-                    note = updown_note(int(n["step"]))
+                    note = spelled_note(int(n["step"]), scale) if scale else updown_note(int(n["step"]))
                 elif sounding and piano == 2:
                     note.accidental = QUARTER_LOWER[accidental]
                 for other in (n.get("also") or [])[:1]:
@@ -1160,7 +1183,7 @@ def prelude_score(prelude: dict, sounding: bool = False, doubtful=(), updown: bo
                     note.other = key_name(other_key, flat=accidental == "flat" or other_key > key)
                     if updown:
                         from ..theory import tuning_for
-                        note.other = tuning_for(24).name(int(other["step"]))
+                        note.other = spelled_name(int(other["step"]), scale) if scale else tuning_for(24).name(int(other["step"]))
                     elif sounding and piano == 2:
                         o_letter, o_accidental = (FLAT_SPELLING if "b" in note.other else SHARP_SPELLING)[other_key % 12]
                         note.other = f"{o_letter}{SUFFIX_OF[QUARTER_LOWER[o_accidental]]}{other_key // 12}"
@@ -1312,7 +1335,8 @@ def doubtful_bars() -> tuple[dict, dict]:
     return ({slug: check.get("doubtful", []) for slug, check in library_build.SCORE_CHECKS.items()}, dict(library_build.PRELUDES_DOUBTFUL))
 
 
-def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, log=print, updown: bool = False) -> list[Path]:
+def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, log=print, updown: bool = False,
+              composer: bool = False) -> list[Path]:
     """All sheets of our readings, next to the files they show (`sheets/` in each folder)."""
     by_slug, by_prelude = doubtful_bars()
     written: list[Path] = []
@@ -1330,11 +1354,17 @@ def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, lo
     path = source / "wyschnegradsky" / "preludes.json"
     if path.exists():
         preludes = json.loads(path.read_text(encoding="utf-8"))
-        for mode in [False] + (["sounding"] if sounding else []) + (["updown"] if updown else []):
+        positions_file = path.parent / "positions.json"
+        positions = json.loads(positions_file.read_text(encoding="utf-8")) if positions_file.exists() else {}
+        for mode in [False] + (["sounding"] if sounding else []) + (["updown"] if updown else []) + (["composer"] if composer else []):
             parts = []
             for prelude in preludes:
                 number = int(prelude["number"])
-                score = prelude_score(prelude, sounding=mode == "sounding", doubtful=by_prelude.get(number, ()), updown=mode == "updown")
+                position = positions.get(str(number))
+                if mode == "composer" and not position:
+                    continue            # its scale has not been read from the edition yet
+                score = prelude_score(prelude, sounding=mode == "sounding", doubtful=by_prelude.get(number, ()),
+                                      updown=mode in ("updown", "composer"), scale=position["scale"] if mode == "composer" else None)
                 score.header = list(PRELUDE_HEADER)
                 if prelude.get("hands_from"):       # read note by note against the composer's edition since
                     score.header[0] = ("Our reading, proofread against the composer's edition for one quarter-tone instrument (Belaieff 418); "
@@ -1345,6 +1375,10 @@ def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, lo
                     hands = ("hands as in the composer's two-staff edition (Belaieff 418)" if prelude.get("hands_from")
                              else "hands by the staves of the two-piano print, not yet the composer's two-staff layout")
                     score.header[1] = f"One quarter-tone instrument, {hands}; ups and downs: arrow = quarter-tone, sharp = semitone."
+                if mode == "composer":
+                    hands = "hands as in his two-staff edition" if prelude.get("hands_from") else "hands by the staves of the two-piano print"
+                    score.header[1] = (f"One quarter-tone instrument, {hands}; spelled with the composer's quarter-tone signs after his scale "
+                                       f"\"{position['name']}\" (notes outside the scale by rule).")
                 base = path.parent / "sheets" / (f"prelude_{number:02d}" + (f"_{mode}" if mode else ""))
                 pages = write_sheet(score, base, pdf, staff_mm=5.0)
                 parts.append(base.with_name(base.name + ".pdf"))
@@ -1367,7 +1401,7 @@ def write_all(source: Path = MUSIC, sounding: bool = False, pdf: bool = True, lo
 
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
-    flags = {flag: flag in args for flag in ("--all", "--sounding", "--updown", "--pdf", "--no-pdf")}
+    flags = {flag: flag in args for flag in ("--all", "--sounding", "--updown", "--composer", "--pdf", "--no-pdf")}
     number = None
     if "--prelude" in args:
         number = int(args[args.index("--prelude") + 1])
@@ -1375,7 +1409,7 @@ def main(argv: list[str] | None = None) -> int:
     args = [a for a in args if a not in flags]
     if flags["--all"]:
         print(f"engraver: {engraver()}")
-        write_all(sounding=flags["--sounding"], pdf=not flags["--no-pdf"], updown=flags["--updown"])
+        write_all(sounding=flags["--sounding"], pdf=not flags["--no-pdf"], updown=flags["--updown"], composer=flags["--composer"])
         return 0
     if not 1 <= len(args) <= 2:
         print(__doc__)

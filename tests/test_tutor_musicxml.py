@@ -648,3 +648,19 @@ def test_a_chord_struck_under_held_notes_gets_the_clef_it_needs():
     mx.set_clefs(score)
     assert score.clefs == {(1, 1): "G"}
 
+
+
+def test_prelude_spelled_as_the_composer_spells_its_scale():
+    """Notes of the prelude's printed 13-note scale take the composer's spelling; the others a rule with sharps."""
+    from tutor.scores import musicxml as mx
+    scale = {"22": "B", "0": "C", "2": "C#", "13": "F#t", "15": "Gt", "17": "Ad", "21": "Bd"}
+    assert [mx.spelled_name(s, scale) for s in (85, 39, 113, 117, 46)] == ["F#t3", "Gt1", "Ad4", "Bd4", "B1"]
+    assert [mx.spelled_name(s, scale) for s in (97, 99, 95, 106)] == ["Ct4", "C#t4", "Bt3", "F4"]          # outside the scale: by rule
+    note = mx.spelled_note(85, scale)
+    assert (note.letter, note.octave, note.accidental) == ("F", 3, "sesquisharp")
+    prelude = {"number": 3, "bars": 1, "time": "4/4", "notes": [
+        {"onset": 0, "dur": 2, "step": 85, "piano": 2, "bar": 1, "hand": "left"},
+        {"onset": 0, "dur": 2, "step": 117, "piano": 2, "bar": 1, "hand": "right"}]}
+    xml = mx.to_musicxml(mx.prelude_score(prelude, updown=True, scale=scale))
+    assert "<accidental>three-quarters-sharp</accidental>" in xml and "<accidental>quarter-flat</accidental>" in xml
+    assert "<alter>1.5</alter>" in xml and "<alter>-0.5</alter>" in xml and "natural-down" not in xml

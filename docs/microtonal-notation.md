@@ -426,3 +426,14 @@ both staves in the treble clef and changes clef). `set_clefs` picks, per staff a
 bass, bass an octave lower and treble an octave higher the clefs that need the fewest ledger lines
 over the whole piece, a change counting as much as six ledger lines, so a passage brings a change of
 clef and a single note does not. Changes stand at barlines.
+
+## The preludes in the composer's own spelling
+
+`python -m tutor.scores.musicxml --all --composer` writes, for every prelude whose scale has been read from
+the edition, a sheet spelled as the composer spells it (`prelude_NN_composer.*`). Each prelude is headed by
+its 13-note scale ("Position Si" for the third); `reference/music/wyschnegradsky/positions.json` holds that
+scale as pitch class -> name (`F#t` = F three-quarter-sharp, `Gt` = G quarter-sharp, `Ad` = A quarter-flat).
+A note of the scale takes that spelling (`spelled_name`); a note outside it is spelled by rule with sharps.
+The signs are the standard MusicXML `quarter-sharp`, `three-quarters-sharp`, `quarter-flat`, which Verovio
+draws. Ups and downs name the same pitch differently (F three-quarter-sharp is `vG`): the composer's
+spelling shows the scale degree, xenharmlib's first name does not.
