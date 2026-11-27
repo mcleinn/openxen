@@ -452,6 +452,42 @@ warning the tutor gives once. The grades are this project's judgement from the v
 kept with each piece (`SCORE_CHECKS`, `PRELUDES_*` in `library_build.py`): of the 24 preludes, 7, 14,
 16, 20, 22 and 24 are well checked, 2, 3, 4, 6, 10 and 23 unverified, the rest partly checked.
 
+## Sheets of our readings
+
+To proofread a transcription, `host/tutor/scores/musicxml.py` writes a score file back as sheet music
+that shows exactly what the file holds: MusicXML (score-partwise 4.0), and a PDF made by an existing
+engraver (MuseScore's command line if it is installed or unpacked under `reference/tools/`, otherwise
+the `verovio` package with PyMuPDF putting its pages into one PDF). Regenerate all sheets with
+
+```
+cd host && python -m tutor.scores.musicxml --all              # add --sounding for the second prelude layout
+```
+
+They are written next to the files they show and are not committed: `reference/music/wyschnegradsky/sheets/`
+(`prelude_01` .. `prelude_24` as `.musicxml` and `.pdf`, all together in `preludes_as_read.pdf`),
+`reference/music/woyten16/sheets/dont_take_five_as_read.*` and
+`reference/music/woyten/final/sheets/ephemeral_happiness_as_read.*`. One file:
+`python -m tutor.scores.musicxml FILE.json [OUT.musicxml] --pdf [--prelude N] [--sounding]`.
+
+- Preludes: four staves as in the two-piano edition and Ueli Raz's engraving, piano II in ordinary
+  notation a quarter-tone above what sounds. `--sounding` writes piano II at sounding pitch with
+  quarter-tone signs on the same letters (natural becomes quarter-flat, sharp quarter-sharp, flat
+  three-quarter-flat). The file holds key numbers only, so sharp or flat and the staff of each note
+  are chosen by rule (`Speller`, `choose_staves`); pitch and rhythm are exact, the spelling and the
+  distribution over the staves can differ from the original. Bar numbers are the engraving's.
+- "Don't Take Five" and "Ephemeral Happiness": the stored spelling, i.e. the notation of the original
+  score, with its key signatures.
+- A note with two readings has its head in parentheses, and the other reading is named above the staff
+  ("engr.: B3 C4 Db4 D4", in the order of the bracketed notes). A doubtful bar or place carries a "?".
+  Every sheet says under its title that it is a machine reading and not proofread.
+- Not shown: slurs, dynamics, pedal, octave lines, clef changes, the original's beams, stems and voices
+  (voices are found from which notes overlap). Accidentals are worked out for the sheet's own layout.
+
+The written MusicXML is checked by reading it back: every note of the file comes out with the same onset,
+length and pitch (`tests/test_tutor_musicxml.py`). How microtonal notation is written by program (which
+signs for which tuning, their MusicXML values, what the engraver draws) is in
+[microtonal-notation.md](microtonal-notation.md).
+
 ## Layouts for any tuning
 
 `host/layouts/isomorphic.py` generates a Bosanquet-style layout for any number of notes per octave
