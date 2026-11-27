@@ -21,7 +21,7 @@ from tutor.sample import sample_setup  # noqa: E402
 from tutor.session import Tutor  # noqa: E402
 from tutor.xt import FakeXentool  # noqa: E402
 
-TOOLS = {"keyboard_info", "tuning", "tuning_notes", "harmony", "keys", "theory", "find_shape", "fingering", "fingering_book", "hand", "library", "improvise", "rhythm", "drone", "play_piece", "set_lights", "demo", "listen", "played", "run_exercise", "stop"}
+TOOLS = {"keyboard_info", "tuning", "tuning_notes", "harmony", "keys", "theory", "find_shape", "fingering", "fingering_book", "hand", "library", "improvise", "rhythm", "drone", "play_piece", "play_along", "set_lights", "demo", "listen", "played", "run_exercise", "stop"}
 # Words of the machinery below the player's view; "keyboard" is fine, "board 2" is not.
 INTERNALS = re.compile(r"\b(board|boards|module index|chan|channel|edo|lattice|midi|hid|usb|address|doubled)\b", re.I)
 
