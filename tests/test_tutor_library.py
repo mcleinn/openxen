@@ -712,15 +712,19 @@ def test_a_score_in_two_staves_comes_bar_by_bar(tmp_path):
 def test_two_piano_preludes_become_two_parts(tmp_path):
     source, out = tmp_path / "src", tmp_path / "lib"
     (source / "wyschnegradsky").mkdir(parents=True)
-    prelude = {"number": 16, "tuning": 24, "bars": 2, "time": "5/4", "time_changes": [{"bar": 1, "time": "5/4"}, {"bar": 2, "time": "4/4"}],
-               "tempi": [{"bar": 1, "bpm": 52}], "notes": [
-                   {"onset": 0.0, "dur": 1.0, "step": 96, "piano": 1, "bar": 1}, {"onset": 0.0, "dur": 1.0, "step": 104, "piano": 1, "bar": 1},
-                   {"onset": 1.0, "dur": 4.0, "step": 95, "piano": 2, "bar": 1}, {"onset": 5.0, "dur": 2.0, "step": 110, "piano": 1, "bar": 2}]}
+    # bar 2 is a barline the reader counted that is no bar: left out, so the third becomes bar 2
+    prelude = {"number": 16, "tuning": 24, "bars": 3, "time": "5/4", "time_changes": [{"bar": 1, "time": "5/4"}, {"bar": 2, "time": "4/4"}],
+               "zero_length_bars": [2], "tempi": [{"bar": 1, "bpm": 52}], "notes": [
+                   {"onset": 0.0, "dur": 1.0, "step": 96, "piano": 1, "bar": 1, "source": "print", "also": [{"step": 94, "source": "engraving"}]},
+                   {"onset": 0.0, "dur": 1.0, "step": 104, "piano": 1, "bar": 1},
+                   {"onset": 1.0, "dur": 4.0, "step": 95, "piano": 2, "bar": 1}, {"onset": 5.0, "dur": 2.0, "step": 110, "piano": 1, "bar": 3}]}
     (source / "wyschnegradsky" / "preludes.json").write_text(json.dumps([prelude]), encoding="utf-8")
     assert build.build(source, out) == {"scores": 1}
     piece = lib.Library(out).piece("score/wyschnegradsky-prelude-16")
     assert piece["tuning"] == 24 and piece["composer"] == "Ivan Wyschnegradsky" and piece["level"] == 3
     one, two = piece["score"]
+    assert (one["n"], two["n"]) == (1, 2) and "variants" not in two
+    assert one["variants"] == [{"staff": "upper", "beat": 0.0, "step": 96, "source": "print", "other": 94, "other_source": "engraving"}]
     assert (one["time"], one["length"], two["time"], two["length"]) == ("5/4", 5.0, "4/4", 4.0)
     assert one["staves"]["upper"] == [[0.0, 1.0, [96, 104]]] and one["staves"]["lower"] == [[1.0, 4.0, [95]]]      # piano II a quarter-tone lower
     assert two["staves"]["upper"] == [[0.0, 2.0, [110]]]                                                           # onset counted from its bar

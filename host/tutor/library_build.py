@@ -475,8 +475,11 @@ def wyschnegradsky(path: Path):
     """Ivan Wyschnegradsky, 24 Preludes op. 22 for two pianos a quarter-tone apart: a list of
     preludes, each with notes `{"onset", "dur", "step" (24 per octave, C4 = 96), "piano", "bar"}`
     and its time signatures. Read from Ueli Raz's engraving (see reference/music/wyschnegradsky);
-    a draft, not proofread: about one bar in twenty does not add up. Piano I becomes the upper
-    part and piano II (a quarter-tone lower) the lower part."""
+    repaired and checked against recordings, not proofread as a whole. Piano I becomes the upper
+    part and piano II (a quarter-tone lower) the lower part. `zero_length_bars` are barlines the
+    reader counted that are no bars (a time signature announced at the end of a system): they are
+    left out and the bars renumbered, which gives the engraving's own bar numbers. A note with
+    two readings (`source`, `also`) keeps both, as in the other scores."""
     if not path.exists():
         return
     for prelude in json.loads(path.read_text(encoding="utf-8")):
@@ -485,14 +488,17 @@ def wyschnegradsky(path: Path):
         def time_of(bar: int) -> str:
             return [c["time"] for c in changes if c["bar"] <= bar][-1]
 
+        empty = set(prelude.get("zero_length_bars") or [])
         starts: dict[int, float] = {}
+        lengths: dict[int, float] = {}
         at = 0.0
         for n in range(1, int(prelude["bars"]) + 1):
             starts[n] = at
             num, _, den = time_of(n).partition("/")
-            at += 4.0 * float(num) / float(den or 4)
-        bars = {n: {"n": n, "time": time_of(n), "length": round(starts.get(n + 1, at) - starts[n], 4), "staves": {"upper": {}, "lower": {}}}
-                for n in starts}
+            lengths[n] = 0.0 if n in empty else 4.0 * float(num) / float(den or 4)
+            at += lengths[n]
+        bars = {n: {"n": n, "time": time_of(n), "length": round(lengths[n], 4), "staves": {"upper": {}, "lower": {}}, "variants": []}
+                for n in starts if n not in empty}
         for note in prelude["notes"]:
             bar = bars.get(note["bar"])
             if bar is None or float(note["dur"]) <= 0:
@@ -502,10 +508,17 @@ def wyschnegradsky(path: Path):
             event = staff.setdefault(beat, [beat, round(float(note["dur"]), 4), []])
             event[2].append(int(note["step"]))
             event[1] = max(event[1], round(float(note["dur"]), 4))
+            for other in note.get("also") or []:
+                bar["variants"].append({"staff": "upper" if note["piano"] == 1 else "lower", "beat": beat, "step": int(note["step"]),
+                                        "source": note.get("source", "engraving"), "other": int(other["step"]),
+                                        "other_source": other.get("source", "recording")})
         out = []
         for n in sorted(bars):
             bar = bars[n]
             bar["staves"] = {name: [[b, d, sorted(set(s))] for b, d, s in (events[k] for k in sorted(events))] for name, events in bar["staves"].items()}
+            bar["n"] = len(out) + 1
+            if not bar["variants"]:
+                del bar["variants"]
             out.append(bar)
         seconds = max(1.0, at * 60.0 / float((prelude.get("tempi") or [{"bpm": 80}])[0].get("bpm", 80) or 80))
         density = len(prelude["notes"]) / seconds
@@ -513,7 +526,8 @@ def wyschnegradsky(path: Path):
             "id": f"score/wyschnegradsky-prelude-{int(prelude['number']):02d}", "title": f"Prelude {prelude['number']} (24 Preludes op. 22)",
             "tradition": "composition", "mode": "24 notes per octave", "form": "two pianos a quarter-tone apart (upper = piano I, lower = piano II)",
             "meter": out[0]["time"], "composer": "Ivan Wyschnegradsky", "level": 3 if density < 3 else 4 if density < 6 else 5, "tuning": 24,
-            "source": "read from Ueli Raz's engraving of the Belaieff edition; a draft, not proofread", "licence": "private use",
+            "source": "read from Ueli Raz's engraving of the Belaieff edition, checked against his rendering and against recordings; "
+                      "not proofread as a whole", "licence": "private use",
             "notes": [], "theory": {}, "phrases": [], "score": out, "bars": len(out),
         }
 

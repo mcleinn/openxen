@@ -1695,7 +1695,7 @@ class Tutor:
             differing = [bar["n"] for bar in bars if bar.get("variants")]
             if differing:
                 head["two_readings"] = (f"in bar{'s' if len(differing) != 1 else ''} {', '.join(map(str, differing))} the sources of this "
-                                        f"transcription differ (the printed score and the recording); those bars come with both readings")
+                                        f"transcription differ (printed score, engraving or recording); those bars come with both readings")
             head["note"] = ("get with phrase = a bar number and phrases = how many bars (up to 4) gives those bars as steps; part = upper "
                             "(right hand), lower (left hand) or both. Teach hands separately first, a bar or two at a time.")
             return head
@@ -1735,8 +1735,9 @@ class Tutor:
         last_bar = chosen[-1]["n"]
         if readings:
             head["two_readings"] = readings
-            head["two_readings_note"] = ("Here the printed score and the recording differ. Tell the player, show both (demo the bar once with "
-                                         "each note) and let them choose; neither is an error of theirs.")
+            head["two_readings_note"] = ("Here the sources of this transcription differ (the printed score, an engraving of it, or a "
+                                         "recording). Tell the player, show both (demo the bar once with each note) and let them choose; "
+                                         "neither is an error of theirs.")
         head.update({"bars_given": f"{chosen[0]['n']}" + (f"-{last_bar}" if len(chosen) > 1 else ""), "time": chosen[0]["time"], "part": part,
                      "steps": steps})
         if missing:
