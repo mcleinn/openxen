@@ -108,6 +108,7 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `harmony` | From the tuning itself: the chords closest to a chord by the smallest movement of the voices (`neighbours`), a progression built from such moves (`path`), progressions and chord vocabularies from the Xenharmonic Wiki (`xen`). From one repertoire: which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
 | `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps. Also the cycles of the rhythm library (talas with their theka, mridangam lessons, usul) by name, sounded on tabla or mridangam where set up |
 | `play_piece` | Plays a composition of the library from bar to bar in the background: absolute timing (no drift), every note with its own length, the piece's tempo marks (`tempi` per bar) times `speed`, octave transposition where the keyboard is too small, one hand or both; `stop` ends it |
+| `play_along` | The player plays bars of a composition in time and the rhythm is judged against the score: with a click at a share of the tempo (`mode` click) or at their own tempo with no click (`mode` follow); the other hand as accompaniment on request; per bar and hand early / late / on it, rushing and dragging, hands together or not, figures out of proportion, tempo played against the target, notes missing or wrong, what to practise next |
 | `drone` | Holds the tanpura's four notes for a raga (or given notes) under everything else until stopped; names the tuning rule and where the sources disagree |
 | `tuning_notes` | Search and read a local copy of the Xenharmonic Wiki: the pages of every tuning the keyboard has a layout for, notation, the chain of fifths, commas, temperaments, beginners' guides |
 | `improvise` | The server keeps time: count-in, a backing (chords, roots, drone), the notes of the sounding chord lit; reports per chord what was played, the share of chord tones, what each chord started on, and one rule (only these notes, chord tones only, chord tone or guide tone first) |
@@ -368,6 +369,54 @@ Built-in patterns: even notes, offbeats, Charleston, tresillo, cinquillo, son an
 bossa, the 12/8 bell, three against two, waltz, and as a fallback the Hindustani cycles teental,
 jhaptal, rupak, dadra, keherwa (tapped on every beat, accents on the claps).
 
+### Playing along with a piece
+
+`host/tutor/playalong.py`, tool `play_along`. `run_exercise` judges the notes and waits for the
+player; `play_piece` plays; `play_along` judges the time of real music. What existing practice
+programs and the score-following literature do, with sources, is in
+`reference/research/rhythm-judgement.md` (outside git); the design follows it:
+
+- **Two modes.** `click` (default): a count-in (`count_in` bars, 0 to 2), then a click on every beat
+  of the metre (dotted quarters in 6/8, 9/8, 12/8) at `speed` times the piece's tempo marks or at
+  `tempo_bpm`; a note's error is played - due - the player's offset from `rhythm calibrate`. This is
+  what every practice product does after wait mode (a fixed, reduced tempo). `follow`: no click; the
+  player starts when ready and sets the tempo; the take ends at the last note, after `pause_s` of
+  silence or after 60 s. The judgement is then made against the player's own tempo (a straight line
+  through the notes around each bar), so it speaks of evenness and proportions. A stop (a gap a
+  second longer than written) is taken out of the times and reported as a stop.
+- **Matching** (`align`): dynamic programming over the score's moments (everything due at one time,
+  both hands, is one set in any order) against the played notes in time order, with a cost for a
+  written note not played and for a played note not written; the distance from the expected time
+  only decides between notes of the same pitch. A missing and an extra note at one place are told as
+  one wrong note. In follow mode it runs twice: by order alone, then with the tempo that gave.
+- **Ornaments**: a grace note, and the later strokes of a trill the file holds written out (`marks`
+  of the bar: the short notes after the trill sign on the trill's notes), are matched if played,
+  never judged for time and never counted as missing; more or fewer strokes on the trill's notes are
+  absorbed. The first stroke of a trill is judged like any note.
+- **Chords**: a chord's time is the mean of its notes; notes more than the chord window (120 ms) apart
+  are reported as a chord not struck together. **Held notes** are judged at their start; apart from
+  that, notes written a quarter note or longer and let go before half their length are counted.
+- **What is said** (`judge`), in the bands and words of `rhythm.py` (`lean`, `band_of`,
+  `spread_over_bands`, `drift_ms` are shared with `rhythm`): notes per band; per bar and hand early,
+  late or on it (a mean counts from half the on-it band); "rushing" and "dragging" only for a change
+  of tempo: in click mode a drift against the click over the take or within one bar beyond the on-it
+  band, in follow mode a bar more than 8 % off the others or a steady change above 10 %. A constant
+  lead or lag is called that, with a pointer to the calibration if the offset was never measured.
+  Hands: the left against the right where both strike, apart from the on-it band. Proportions: for
+  three successive notes of one hand, the share of the first distance; an uneven written figure
+  played nearer to equal is "played even" (and even notes played uneven, a dotted figure overdone).
+  Then one or two sentences on what to practise next.
+- **The other hand** (`accompany`, with one hand as `part`): played by the server, at its times in
+  click mode; in follow mode it waits for the player's next note and goes at the tempo heard so far
+  (`Follower`, a pointer with a look-ahead of three moments, as PianoBooster's "follow you").
+- Sounds are sent from a thread of their own, so reading the keys is not held up. A call takes at
+  most 60 s: bars that do not fit are left out and `continue_with` says where to go on. The piece is
+  moved to fit the keyboard exactly as `library get` does for the same `part`.
+
+Limits: times pass the same route as in `rhythm` (about 10 ms of jitter). The click follows the
+tempo marks bar by bar, with no ritardando inside a bar. Fast written-out runs without a mark are
+judged note by note. Dynamics are not judged. Not yet tried on a real keyboard.
+
 **Rhythm library.** `python -m tutor.rhythm_build` (from `host/`) converts the researched
 reference `reference/music/rhythm/tala.json` (third-party research, outside git; its `REPORT.md`
 and `SOURCES.md` say where everything comes from) into `build/tutor-library/rhythm.json`, which
@@ -616,7 +665,7 @@ addresses, which the model never sees.
 
 ## Tests
 
-`python -m pytest tests/test_tutor_*.py` (about a minute, no keyboard needed) and `cargo test` in
+`python -m pytest tests/test_tutor_*.py` (a few minutes, no keyboard needed) and `cargo test` in
 xentool. See `docs/testing.md` for what each file proves.
 
 Checked by hand on 2026-11-25: the server started with a token on all interfaces answers 401
@@ -655,7 +704,7 @@ host tests and xentool's encoder change together.
 
 ## Left out of version 1
 
-Tempo-keeping (rhythm) mode, looping with tempo ramps, scores over time and a practice
+Looping with tempo ramps, scores over time and a practice
 journal, an event feed for the avatar, the Exquis and Wooting keyboards.
 
 ## What it was modelled on
@@ -663,5 +712,8 @@ journal, an event feed for the avatar, the Exquis and Wooting keyboards.
 No existing MCP server drives key LEDs or targets a microtonal or hexagonal keyboard (search
 of 2026-11-25). Borrowed: the blocking "listen until the player pauses" tool from
 `thias42/midi-mcp`; wait mode, listen-first and the colour conventions from light-up piano
-products; chord matching as a set with wrong-key rules from Neothesia and PianoBooster. The
+products; chord matching as a set with wrong-key rules from Neothesia and PianoBooster;
+for `play_along` the two modes of PianoBooster (play along, follow you), alignment by dynamic
+programming with missing and extra notes (Dannenberg 1984, Bloch & Dannenberg 1985, Nakamura et
+al. 2017, `parangonar`) and the chord time of `partitura`. The
 projects are cloned under `reference/repos/` (see `reference/SOURCES.md`).
