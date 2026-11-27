@@ -104,7 +104,7 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `fingering` | Fingers for a phrase (melody, progression, mixed), chosen for the phrase as a whole; per step what the context changed and the alternatives |
 | `hand` | Measure the player's hand on the keys: resting position (five keys held), widest stretches thumb-little finger and index-little finger; or a size preset; kept in `host/tutor/state/player.json` |
 | `fingering_book` | The player's own fingerings per hand shape, kept between sessions; they come first in `find_shape` and `fingering` on every root |
-| `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns |
+| `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns; a composition with its outline (sections, repeats, practice order) and by section or phrase |
 | `harmony` | From the tuning itself: the chords closest to a chord by the smallest movement of the voices (`neighbours`), a progression built from such moves (`path`), progressions and chord vocabularies from the Xenharmonic Wiki (`xen`). From one repertoire: which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
 | `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps. Also the cycles of the rhythm library (talas with their theka, mridangam lessons, usul) by name, sounded on tabla or mridangam where set up |
 | `play_piece` | Plays a composition of the library from bar to bar in the background: absolute timing (no drift), every note with its own length, the piece's tempo marks (`tempi` per bar) times `speed`, octave transposition where the keyboard is too small, one hand or both; the print's dynamics as key velocity, hairpins as ramps, ritardando / rallentando as a gradual slowing, fermatas (what is assumed comes back as `expression`); `stop` ends it |
@@ -559,6 +559,62 @@ notes outside, and the same for the other layouts the keyboard can be switched t
 (`_fit_shift`), since on an isomorphic layout that keeps shapes and fingering; bars handed out for teaching and
 `play_piece` use the same shift. Notes that still have no key are left out of the steps and named. Grace notes
 and trills of the print are carried per bar (`marks`) and shown on the step.
+
+### The outline of a composition
+
+A composition is not taught in rows of four bars. `library get` with the id only returns, besides
+`on_this_keyboard`, an `outline` and no notes (`host/tutor/outline.py`, built with the library and stored with
+the piece as `outline`):
+
+- `sections`: one line each, with number, label (A, B, A' ...: a later section like an earlier one shares its
+  letter, with a prime when it is not the same), bar range, what it is made of ("the opening 2-bar pattern a
+  (bars 2-3), 2 times", "pattern a returns unchanged", "material of its own", "trills", the dynamics, "slowing
+  down"), how hard it is, and its phrases;
+- `repeats`: what repeats what, condensed: a recurring pattern with all its returns ("pattern a = bars 2-3;
+  bars 4-5, 12-13 ...: the same notes"), then single bars and runs ("bar 11 = bar 10: right hand 2 steps lower
+  (minor second), left hand different"). Compared transposition-invariantly, each hand alone and both together;
+  the kinds are the same notes, the same shape a number of steps higher or lower (with the interval's name from
+  the theory module; whole octaves as such), the same but for the ornaments (grace notes left out, a written-out
+  trill taken as its one note), varied (at least 60 % of the notes moved by one interval), the same rhythm only;
+- `practice_order`: the pattern first where it has fewest notes, where it comes back unchanged, its
+  transpositions ("the same hand shape on other keys"), its variants, the lesser patterns, then what is in no
+  pattern from the easiest to the hardest passage, hands separately where a hand has more than it reaches.
+
+`library get` with `section` (number or label) returns the bars of that section in the usual step format: the
+whole section if it has at most eight bars, else its first phrase; `phrase` picks a phrase of the section,
+`phrases` several in a row (eight bars at most per call; the answer's `next` says how to go on). Without
+`section`, `phrase` stays a bar number, four bars at most. Every answer with bars says under `repeats` what
+those bars repeat ("bar 4: the same notes as bar 2"; for one hand, that hand's relation), with step counts
+converted to the keyboard's tuning when the piece is played on the nearest notes of another one. Because the
+whole piece is moved by one interval to fit the keyboard, the statement holds on the keys. `play_piece` and
+`play_along` take `section` instead of `from_bar` / `to_bar`.
+
+How it is computed (sources in `reference/research/segmentation.md`; no published analysis of the form of
+these pieces was found, so nothing is taken from one):
+
+- *Repeats*: notes as points (onset in the bar, step), and the pitch translation that moves most points of an
+  earlier bar onto a later one (Meredith, Lemstroem and Wiggins 2002, restricted to whole bars). Lengths are
+  not compared, so a tie changes nothing.
+- *Patterns*: a greedy cover by the unit of 1, 2 or 4 bars whose occurrences cover most bars (the idea of
+  Meredith's COSIATEC); a unit must occur 4, 3 or 2 times.
+- *Sections*: points for each sign before a bar, a boundary from two points on: "a tempo" (3), a rest in both
+  hands of a third of a bar and at least a quarter note (2; 3 from half a bar), a fermata (2), the metronome
+  marks returning after a slowing or changing for four bars or more (2), a time signature that lasts (2), a
+  pattern that covers a tenth of the piece returning or being left (2), earlier bars returning after eight or
+  more (1.5), the note density doubling or halving (1.5), a peak of Foote's novelty on the bar-to-bar
+  likeness (1). At most 14 sections; one longer than 24 bars is cut again at its strongest lesser sign.
+- *Phrases* inside a section, at whole bars: a rest in both hands, after a fermata or a slowing, a pattern or
+  an earlier bar starting over, a change of texture, a slur ending, a long note before the bar line (Lerdahl
+  and Jackendoff's grouping rules 2, 3 and 6); eight bars at most.
+- *Difficulty*: points from notes per second at the piece's tempo (per beat if it has no tempo mark), the
+  largest chord in one hand, tight bars, trills, and how much repeats earlier bars; doubtful bars are named.
+
+The weights, the thresholds, the difficulty points and the rule of the practice order are this project's own
+choices, not taken from a source. Limits: whole bars only (an upbeat belongs to the bar it stands in, a repeat
+displaced by part of a bar is not seen); a development that keeps the rhythm and changes the intervals is
+reported as "the same rhythm" at most; inversion, augmentation and sequences inside a bar are not looked for;
+no harmony, so no cadences; where the left hand repeats under a changing melody the pattern found is weak.
+The outline states that it is "computed from the notes; a suggestion, not an analysis by a musician".
 
 ### Expression marks
 

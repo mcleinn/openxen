@@ -73,6 +73,7 @@ IMPROVISE_MAX_S = 150.0     # an improvisation take may be this long; progress i
 CLICK_CHANNEL = 10      # General MIDI percussion
 CLICK_NOTES = (76, 77)  # accented click, plain click: high and low wood block
 PAUSE_S = 12.0          # an exercise returns when the player tried a step and then kept quiet this long
+SECTION_BARS = 8        # most bars of a composition one library get by section or phrase hands out
 MAX_BLOCK_S = 60.0      # longest a tool call waits for the player
 CHORD_WINDOW_S = 0.12   # notes starting within this of each other were played together
 MEMORY_S = 600.0        # how far back `played` can look
@@ -1814,7 +1815,41 @@ class Tutor:
             out["not_on_this_keyboard"] = list(dict.fromkeys(missing))
         return out
 
-    def _score_bars(self, piece: dict, first: int | None, count: int, part: str) -> dict:
+    def _section_bars(self, piece: dict, section, phrase: int | None = None, phrases: int = 1) -> tuple[int, int, dict]:
+        """The bars of a section of a composition's outline, or of phrase(s) in it: first bar, last
+        bar, and what to tell about it. Without `phrase` a section longer than SECTION_BARS gives
+        its first phrase."""
+        from . import outline
+        made = piece.get("outline")
+        if not made:
+            raise TutorError("this piece has no outline (rebuild the library: python -m tutor.library_build); give bar numbers instead")
+        try:
+            sec = outline.find_section(made, section)
+        except ValueError as e:
+            raise TutorError(str(e)) from None
+        spans = sec["phrases"]
+        told = {"section": f"{sec['n']} ({sec['label']}), bars {sec['bars'][0]}-{sec['bars'][1]}: {sec['says']}"}
+        listing = [f"{k}: bars {a}-{z}" if z > a else f"{k}: bar {a}" for k, (a, z) in enumerate(spans, 1)]
+        following = sec["n"] < len(made["sections"])
+        if phrase is None and sec["bars"][1] - sec["bars"][0] + 1 <= SECTION_BARS:
+            told["given"] = "the whole section"
+            if len(spans) > 1:
+                told["phrases"] = listing
+            told["next"] = f"library get with section={sec['n'] + 1}" if following else "this is the last section"
+            return sec["bars"][0], sec["bars"][1], told
+        k = 1 if phrase is None else int(phrase)
+        if not 1 <= k <= len(spans):
+            raise TutorError(f"phrase must be between 1 and {len(spans)} in section {sec['n']}: " + ", ".join(listing))
+        last = k
+        while last < min(len(spans), k + max(1, int(phrases)) - 1) and spans[last][1] - spans[k - 1][0] + 1 <= SECTION_BARS:
+            last += 1
+        told["given"] = (f"phrase {k}" if last == k else f"phrases {k}-{last}") + f" of {len(spans)}"
+        told["phrases"] = listing
+        told["next"] = (f"library get with section={sec['n']} and phrase={last + 1}" if last < len(spans) else
+                        f"library get with section={sec['n'] + 1}" if following else "this is the last phrase of the piece")
+        return spans[k - 1][0], spans[last - 1][1], told
+
+    def _score_bars(self, piece: dict, first: int | None, count: int, part: str, most: int = 4) -> dict:
         """A piece in two staves, bar by bar: what sounds together at each moment as one step."""
         kb = self.keyboard
         t = kb.tuning
@@ -1856,7 +1891,16 @@ class Tutor:
             from . import expression                    # the marks of the print the piece carries (expression.py)
             if expression.overview(piece):
                 head["expression"] = expression.overview(piece)
-            head["note"] = ("get with phrase = a bar number and phrases = how many bars (up to 4) gives those bars as steps; part = upper "
+            if piece.get("outline"):
+                from . import outline
+                head["outline"] = outline.overview(piece["outline"])
+                if written:
+                    head["outline"]["steps"] = f"sizes of transpositions are in steps of the piece's own tuning ({piece['tuning']} per octave)"
+            head["note"] = ("get with section = a number of the outline gives that section (or one phrase of it) as steps; or phrase = a bar "
+                            "number and phrases = how many bars (up to 4). part = upper (right hand), lower (left hand) or both. Teach "
+                            "what the outline calls the pattern first, hands separately, and say where it returns."
+                            if piece.get("outline") else
+                            "get with phrase = a bar number and phrases = how many bars (up to 4) gives those bars as steps; part = upper "
                             "(right hand), lower (left hand) or both. Teach hands separately first, a bar or two at a time.")
             return head
         if not 1 <= first <= len(bars):
@@ -1864,7 +1908,7 @@ class Tutor:
         part = "upper" if part in ("auto", "melody") else part
         if part not in ("upper", "lower", "both"):
             raise TutorError("part must be upper (right hand), lower (left hand) or both")
-        chosen = bars[first - 1:first - 1 + max(1, min(count, 4))]
+        chosen = bars[first - 1:first - 1 + max(1, min(count, most))]
         moments: dict[float, set[int]] = {}
         at = 0.0
         for bar in chosen:
@@ -1936,6 +1980,16 @@ class Tutor:
         said = expression.words(bars, chosen, part)
         if said:
             head["expression"] = said
+        if piece.get("outline"):            # what these bars repeat: the same shape on the keys, wherever the piece was moved to
+            from . import outline
+            own = int(piece["tuning"])
+            name = outline.namer(lambda steps: t.words(t.interval(steps)), t.edo)
+            said = [outline.bar_words(piece["outline"], bar["n"], name, part, (lambda steps: round(steps * t.edo / own)) if written else None)
+                    for bar in chosen]
+            if any(said):
+                head["repeats"] = [line for line in said if line]
+                head["repeats_note"] = ("Computed from the notes. Tell the player what they already know: a transposed repeat is the same "
+                                        "hand shape and fingering on other keys." + (" Sizes are approximate in this tuning." if written else ""))
         if missing:
             head["not_on_this_keyboard"] = list(dict.fromkeys(missing))
             head["not_on_this_keyboard_note"] = ("These notes of the bar have no key on the keyboard as it is and are left out of the steps. "
@@ -1983,7 +2037,7 @@ class Tutor:
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
                 sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half", nearest: bool = False) -> dict:
+                rhythm: str = "half", nearest: bool = False, section: str | int | None = None) -> dict:
         """Teaching material. overview | search | get | raga | pattern | fifths | comma."""
         action = action.strip().lower()
         kb = self.keyboard
@@ -2013,6 +2067,11 @@ class Tutor:
                                  f"Switch with tuning to {piece['tuning']}, or ask again with nearest=true to play it here on the "
                                  f"nearest notes (an approximation), or choose another piece.")
             if piece.get("score"):
+                if section is not None:         # by section (and phrase in it) of the piece's outline
+                    first, last, told = self._section_bars(piece, section, phrase, phrases)
+                    out = self._score_bars(piece, first, last - first + 1, part, most=SECTION_BARS)
+                    out["note"] = out["note"].split("Next:")[0].split("This is the last bar")[0] + "Phrases are suggestions."
+                    return {**out, **told}
                 return self._score_bars(piece, phrase, phrases, part)
             pitches, off = self._piece_pitches(piece, theory_pitches)
             shift = self._fit_octaves([p for p in pitches if p is not None]) * t.edo
@@ -2382,9 +2441,20 @@ class Tutor:
             if self._playing and self._playing[0] is threading.current_thread():
                 self._playing = None
 
+    def _whole_section(self, piece: dict, section) -> tuple[int, int]:
+        """First and last bar of a section of the piece's outline, for play_piece and play_along."""
+        from . import outline
+        if not piece.get("outline"):
+            raise TutorError("this piece has no outline (rebuild the library: python -m tutor.library_build); give from_bar and to_bar instead")
+        try:
+            first, last = outline.find_section(piece["outline"], section)["bars"]
+        except ValueError as e:
+            raise TutorError(str(e)) from None
+        return first, last
+
     def play_piece(self, action: str = "start", id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both",
                    speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False, lights: bool = False,
-                   octave: int | None = None) -> dict:
+                   octave: int | None = None, section: str | int | None = None) -> dict:
         """Play a composition of the library from one bar to another as it is written: every note at
         its time and with its own length, at the piece's tempo or a share of it. start | stop | status."""
         action = action.strip().lower()
@@ -2399,8 +2469,12 @@ class Tutor:
         if not id:
             raise TutorError("give the id of a piece (library search tradition=composition lists them)")
         piece = self.music.piece(id)
+        if piece is None:
+            raise TutorError(f"there is no piece '{id}' in the library; ids come from library search")
         if not piece.get("score"):
             raise TutorError("play_piece plays compositions in two staves (tradition composition); for other pieces pass their phrases to demo")
+        if section is not None:
+            from_bar, to_bar = self._whole_section(piece, section)
         kb = self.keyboard
         t = kb.tuning
         bars = piece["score"]
@@ -2489,9 +2563,13 @@ class Tutor:
     def play_along(self, id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both", mode: str = "click",
                    speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False, count_in: int = 1, click: bool = True,
                    accompany: bool = False, level: str = "beginner", pause_s: float = playalong.FOLLOW_PAUSE_S,
-                   progress: Progress | None = None) -> dict:
+                   progress: Progress | None = None, section: str | int | None = None) -> dict:
         """The player plays bars of a composition in time and the rhythm is judged: with a click
         (mode click) or at their own tempo (mode follow). All of it is in `playalong.py`."""
+        if section is not None:
+            piece = self.music.piece(id) if id else None
+            if piece is not None and piece.get("score"):
+                from_bar, to_bar = self._whole_section(piece, section)
         return playalong.run(self, id, from_bar, to_bar, part, mode, speed, tempo_bpm, nearest, count_in, click, accompany, level,
                              pause_s, progress)
 

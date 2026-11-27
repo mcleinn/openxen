@@ -214,7 +214,7 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
                 sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half", nearest: bool = False) -> str:
+                rhythm: str = "half", nearest: bool = False, section: str | int | None = None) -> str:
         """Music to teach with, ready as steps. action "overview": what there is.
         "search": pieces by tradition (makam, chant, jazz), mode (a makam such as Rast, or
         "mode 1"), form, level (1 easiest .. 5; gives that level and below) or text;
@@ -238,13 +238,20 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         Jazz: tunes come as chord changes (get with phrase=N gives section N as chord steps;
         voicing full, shell = root-third-seventh, guide = third and seventh, root; sevenths
         auto, harmonic or plain; part "changes" or "melody" for lead sheets that have both).
-        Compositions (tradition "composition") come bar by bar: phrase = bar number,
-        phrases = how many bars, part = upper, lower or both.
+        Compositions (tradition "composition"): get with the id alone gives an OUTLINE and no
+        notes: sections (bar ranges, labels A, B, A' ..., what each is made of, how hard),
+        what repeats what ("bars 4-5 = bars 2-3", also transposed: the same hand shape on
+        other keys), and a practice order. Read it before teaching the piece. Then fetch by
+        `section` (its number or label): the whole section as steps if it is short, else its
+        first phrase; `phrase` = which phrase of the section, `phrases` = how many in a row.
+        Without `section`, phrase = a bar number and phrases = how many bars (up to 4).
+        part = upper, lower or both. Fetched bars say what they repeat. The outline is
+        computed from the notes, not a musician's analysis, and its phrases are suggestions.
         Makam pieces are written in 53 steps per octave: switch the tuning, or pass
         nearest=true to play a piece written for another tuning on the nearest notes of
         this one (an approximation; the result says how far off). One phrase at a time."""
         return guard(tutor.library, action, id, phrase, phrases, tradition, mode, form, level, text, limit, name, root, scale, theory_pitches,
-                     part, voicing, sevenths, plain_roots, direction, count, rhythm, nearest)
+                     part, voicing, sevenths, plain_roots, direction, count, rhythm, nearest, section)
 
     @server.tool()
     async def hand(ctx: Context, action: str = "status", hand: str = "right", fingers: list[int] | None = None,
@@ -323,8 +330,9 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
     @server.tool()
     def play_piece(action: str = "start", id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both",
                    speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False, lights: bool = False,
-                   octave: int | None = None) -> str:
-        """Play a composition of the library (tradition "composition") from one bar to another,
+                   octave: int | None = None, section: str | int | None = None) -> str:
+        """Play a composition of the library (tradition "composition") from one bar to another
+        (or `section` = a section of its outline, by number or label, instead of the bars),
         as written: every note at its time and with its own length, held notes held, both
         hands or one (`part` upper = right hand, lower = left hand, both). The server does the
         timing, so fast passages come out even; you do not fetch or pass the notes. It
@@ -339,16 +347,17 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         the struck keys, useful at slow speed only. Use it to let the player hear a passage
         before and after practising it; use library get + demo when you want to teach the
         notes step by step with fingers and names."""
-        return guard(tutor.play_piece, action, id, from_bar, to_bar, part, speed, tempo_bpm, nearest, lights, octave)
+        return guard(tutor.play_piece, action, id, from_bar, to_bar, part, speed, tempo_bpm, nearest, lights, octave, section)
 
     @server.tool()
     async def play_along(ctx: Context, id: str | None = None, from_bar: int = 1, to_bar: int | None = None, part: str = "both",
                          mode: str = "click", speed: float = 1.0, tempo_bpm: float | None = None, nearest: bool = False,
                          count_in: int = 1, click: bool = True, accompany: bool = False, level: str = "beginner",
-                         pause_s: float = 6.0) -> str:
+                         pause_s: float = 6.0, section: str | int | None = None) -> str:
         """The player plays bars of a composition of the library IN TIME, and you get their rhythm
         judged against the score (run_exercise judges only the notes; play_piece only plays).
-        `id`, `from_bar`, `to_bar`, `part` (upper = right hand, lower = left hand, both),
+        `id`, `from_bar`, `to_bar` (or `section` of the piece's outline instead of the bars),
+        `part` (upper = right hand, lower = left hand, both),
         `speed` (share of the piece's tempo; start at 0.5 to 0.7) or `tempo_bpm`, `nearest` as
         in play_piece. `mode` "click" (default): after `count_in` bars of clicks (0 to 2) the
         click goes on at the tempo and the player follows it; click=false leaves only the
@@ -368,7 +377,7 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         first with run_exercise; use this when they are safe."""
         return await blocking(ctx, tutor.play_along, id=id, from_bar=from_bar, to_bar=to_bar, part=part, mode=mode, speed=speed,
                               tempo_bpm=tempo_bpm, nearest=nearest, count_in=count_in, click=click, accompany=accompany, level=level,
-                              pause_s=pause_s)
+                              pause_s=pause_s, section=section)
 
     @server.tool()
     def drone(action: str = "status", raga: str | None = None, root: str | None = None, notes: list[str] | None = None,

@@ -163,9 +163,35 @@ you want them to play something now and wait for it.
     equal, a longer one at the end of a phrase. Its last note is the home note; a drone
     on it helps the ear.
 - **Compositions** written for a particular tuning (tradition `composition`) are piano
-  pieces in two staves and come bar by bar: `phrase` is the bar number, `phrases` how many
-  bars, `part` upper (right hand), lower (left hand) or both. Teach hands separately, one
-  or two bars at a time, slowly; they are real pieces and hard. They sound as written only
+  pieces in two staves. READ THE OUTLINE FIRST: `library get` with the id only gives
+  `outline` and no notes: the sections (number, label such as A, B, A', bar range, what
+  each is made of, how hard), `repeats` (which bars are which earlier bars again, also
+  transposed) and a `practice_order`. Do not cut a piece into "bars 1-4, 5-8". Teach it
+  by its form:
+  - Start with the recurring pattern the outline names ("pattern a = bars 2-3"), hands
+    separately, then together. Fetch it by section: `library get` with `section` = the
+    number (or label) gives that section's bars as steps, or its first phrase if the
+    section is long; `phrase` = which phrase of the section; `next` says how to go on.
+  - When a bar repeats an earlier one, say so before the player reads a single note:
+    "you know this already, it is bar 2 again". A TRANSPOSED repeat is the most useful
+    thing you can tell on this keyboard: the same hand shape and the same fingering,
+    started on another key ("the trill of bar 10 again, one key-step lower"). Every
+    fetched bar comes with `repeats` when there is something to say; show the starting
+    key and let them find the rest by shape.
+  - Follow the practice order or adapt it to the player: the pattern, where it returns
+    unchanged (nothing new), its transpositions and variants (say which hand changes),
+    then the passages that occur once, the hardest last; hands separately where the
+    outline says a bar is too wide for one hand.
+  - `play_piece` and `play_along` take `section` instead of bar numbers: let them hear
+    a section before and after working on it.
+  The outline is computed from the notes; it is not a musician's analysis. Present
+  sections and the order as a proposal, and phrases as suggestions: they are cut at whole
+  bars, so an upbeat belongs to the phrase before it on paper. Where the player hears a
+  phrase begin elsewhere, go with their ear. Speak of "the opening pattern", "the trill
+  bars", "the closing bars", not of labels and pattern letters, unless the player likes
+  them. Without `section`, `phrase` is a bar number and `phrases` how many bars (up to
+  four); `part` is upper (right hand), lower (left hand) or both. Work slowly, a phrase
+  at a time; these are real pieces and hard. They sound as written only
   in their own tuning: offer to switch (`tuning`) before starting one. These pieces are
   machine readings of scores, none proofread. `transcription` on the piece says how far it
   was checked (`well checked`, `partly checked`, `unverified`; search results carry the

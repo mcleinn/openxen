@@ -562,14 +562,30 @@ def carry_marks(marks: list, bars: dict, starts: dict[int, float], lengths: dict
             here.append(entry)
 
 
+def with_outline(piece: dict) -> dict:
+    """The piece with its `outline` (outline.py): sections, repeats, phrases, difficulty, practice order,
+    computed from its bars; intervals named in the piece's own tuning."""
+    from . import outline
+    from .theory import tuning_for
+    try:
+        tuning = tuning_for(int(piece["tuning"]))
+    except Exception:           # a tuning the theory module does not know: sizes in steps only
+        tuning = None
+    made = outline.build(piece, (lambda steps: tuning.words(tuning.interval(steps))) if tuning else None)
+    if made:
+        piece["outline"] = made
+    return piece
+
+
 def scores(source: Path):
     for relative, slug, level, how in SCORES:
         path = source / relative
         if path.exists():
             piece = score_piece(path, slug, level, how)
             if piece:
-                yield piece
-    yield from wyschnegradsky(source / "wyschnegradsky" / "preludes.json")
+                yield with_outline(piece)
+    for piece in wyschnegradsky(source / "wyschnegradsky" / "preludes.json"):
+        yield with_outline(piece)
 
 
 def wyschnegradsky(path: Path):
