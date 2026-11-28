@@ -103,7 +103,7 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `find_shape` | The ways to play a chord or a set of notes: keys, path from the first key, reach; a finger per key with how it feels and why, and other fingerings of the same keys |
 | `fingering` | Fingers for a phrase (melody, progression, mixed), chosen for the phrase as a whole; per step what the context changed and the alternatives |
 | `hand` | Measure the player's hand on the keys: resting position (five keys held), widest stretches thumb-little finger and index-little finger; or a size preset; kept in `host/tutor/state/player.json` |
-| `fingering_book` | The player's own fingerings per hand shape, kept between sessions; they come first in `find_shape` and `fingering` on every root |
+| `fingering_book` | The player's own fingerings per hand shape, kept between sessions; they come first in `find_shape` and `fingering` on every root. Trills have entries of their own (`trill`), per hand and per place of the other key; `trill_shapes` lists the shapes to ask about |
 | `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns, drills (chord inversions, trills and tremolos); a composition with its outline (sections, repeats, practice order) and by section or phrase; a jazz tune with its form (32 bars AABA, 12-bar blues), by section, and found by form or length |
 | `harmony` | From the tuning itself: the chords closest to a chord by the smallest movement of the voices (`neighbours`), a progression built from such moves (`path`), progressions and chord vocabularies from the Xenharmonic Wiki (`xen`). From one repertoire: which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
 | `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps. Also the cycles of the rhythm library (talas with their theka, mridangam lessons, usul) by name, sounded on tabla or mridangam where set up |
@@ -178,6 +178,34 @@ average hand with assumed resting positions is used. The player's own fingerings
 `fingering_book`) are stored per hand shape in millimetres, so one entry serves the same chord
 quality on every root; they always win over computed ones, also inside phrases. Both are kept
 in `host/tutor/state/player.json` (not in git; `--player FILE` or `--player none`).
+
+Trill entries (`fingering_book` with `trill`, `player.trills`) are kept apart from the chord
+entries: holding two keys and alternating them are different tasks, so the two never read each
+other. An entry is keyed by hand and by where the other key lies as seen from the main note
+(`to`, mm to the right and away from the player), and holds the two fingers, the main note's
+first, and a label in the player's words:
+
+```json
+"trills": [{"hand": "right", "to": [10, 17], "fingers": [2, 3], "label": "trill to the key to the upper right"}]
+```
+
+Why per shape and not per tuning or interval: which fingers trill well depends on where the two
+keys lie under the hand, and on this keyboard that is the same in every layout of the same
+geometry while the interval is not. The key to the upper right is a diatonic semitone (5 steps)
+in the 53 sample layout and a chromatic semitone (2 steps) in the 31 one; one entry serves both,
+and the interval is only reported (`now`), never stored. The direction is part of the shape: a
+trill up to the right neighbour and the trill back down from it are two entries, as are the two
+hands. A file written before there were trill entries loads as one without any; nothing else in
+the file changed. Positions within 1.5 mm are the same shape. An entry made with the keyfield
+lying at another angle does not match, like the chord entries.
+
+The calibration round (`fingering_book` action `trill_shapes`, hand left, right or both) lists
+what to ask once: from the key in the middle of the keyfield to each of its six neighbours, and
+to those keys of the next ring (up to two key widths away) that are at most a whole tone from it
+in the current tuning; wider shapes are left to the moment they come up. Ten shapes per hand in
+the 31 and 53 sample layouts. Each comes with the two keys to light, the interval now, the
+player's pair if there is one, and the computed pair. It does not wait for the player: the tutor
+lights the keys, asks, and saves the answer.
 
 Still assumed: each finger's free range towards and away from the palm. Open questions for
 the player: thumb under versus moving rows in scales, one finger on two keys, sliding between
@@ -877,6 +905,16 @@ what the two keys' positions ask of the hand, from the same distance tables as e
 keyboard the answer depends on where the second key lies: for a comma the thumb and middle finger may come out
 ahead of 2-3. A step may name its own pair (`fingers`). Tremolos between chords take the fingering of the whole
 shape.
+
+Nobody has tried these pairs on this keyboard, and every result says so (`fingers_from`: "a computed suggestion
+that nobody has tried on this keyboard"). The player's own pair for the shape and hand (see Fingering: the trill
+entries of the fingering book) replaces it wherever a trill is fingered: `fingering` and `demo` (`trill.yours`,
+"your own fingering", the finger colours), the drill (their pair is the first group and, unless `count` asks for
+more, the only one), and the trill steps of a piece (`trill_fingers` in `library get`, for the staff's hand). The
+computed pairs stay as `other_pairs`. Without an entry the result carries `ask`, one sentence for the tutor to say
+("I have no fingering of yours for a trill to the key to the upper right; I would try 2-3: which fingers do you
+use?"), and `then`, how to save the answer. `trill.shape` names the shape in the player's direction words with the
+interval it is in the current tuning in brackets.
 
 **The drill** (`library` pattern `trill`, `tremolo`): two notes an interval apart (`interval`: step, comma,
 diesis, quarter tone, semitone, whole tone ..., or a number of steps; the tuning's names from

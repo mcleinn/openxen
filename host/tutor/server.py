@@ -206,7 +206,9 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         feels, what the context changed, and other good fingerings of that step alone.
         This is a computed starting point for an average hand, not a rule: present it as
         a suggestion, offer the alternatives, and take the player's own choice over it.
-        A trill step gets a finger pair for trilling (`trill.fingers`, with other pairs)."""
+        A trill step gets a finger pair for trilling (`trill.fingers`): the player's own
+        for that shape if fingering_book has one (`yours`), else a computed, untried one
+        with `ask`, a sentence to ask the player for theirs; `other_pairs` are alternatives."""
         return guard(tutor.fingering, steps, hand, legato)
 
     @server.tool()
@@ -240,7 +242,8 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         to show and ask, or to name and let the player play. Each step has `say`: the
         inversion, the lowest note, the root. Trills: name "trill" = two notes `interval`
         apart (step, comma, semitone, whole tone ... or a number of steps) above root, per
-        finger pair of `hand` (count = how many pairs) at three speeds; "tremolo" = two
+        finger pair of `hand` (count = how many pairs; the player's own pair for that
+        shape first and, without count, alone) at three speeds; "tremolo" = two
         notes further apart, or `chords`. A trill step is {"trill": [main, other]}: demo
         alternates evenly, run_exercise judges the effect and never counts strokes.
         "fifths": the circle of fifths in this tuning as an exercise: root, name = chord
@@ -298,13 +301,26 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
 
     @server.tool()
     def fingering_book(action: str = "list", fingers: list[int] | None = None, hand: str = "right", keys: list[str] | None = None,
-                       root: str | None = None, quality: str = "major", inversion: int = 0, notes: list[str] | None = None) -> str:
+                       root: str | None = None, quality: str = "major", inversion: int = 0, notes: list[str] | None = None,
+                       trill: bool = False) -> str:
         """The player's own fingerings, kept between sessions. When the player settles on a
         fingering ("I play this with 1-2-4"), save it: action "save" with `fingers` (lowest
         note first) and the shape as a chord (root, quality, inversion), notes, or keys.
         It then comes first in find_shape and fingering, for the same hand shape on every
-        root. "forget" removes one, "list" shows all. Never overrule an entry of this book."""
-        return guard(tutor.fingering_book, action, fingers, hand, keys, root, quality, inversion, notes)
+        root. "forget" removes one, "list" shows all. Never overrule an entry of this book.
+        Trills have entries of their own (`trill` true): "save" with two `keys` or `notes`,
+        the MAIN note first, `hand` and the two `fingers` (main note's first). The entry
+        is for where the other key lies from the main one (to the upper right, two keys to
+        the left ...) under that hand: it is used for every trill of that shape, from any
+        key and in every tuning, in fingering, demo, the trill drill and pieces, and the
+        computed pair becomes an alternative. The trill back from the other key, the other
+        hand, and the two keys held as a chord are separate entries. "forget" with `trill`
+        removes one; "list" shows them with the interval each shape is in the current
+        tuning. "trill_shapes" (hand left, right or both): the shapes to ask about once
+        (the six neighbours of a key, and the keys of the next ring up to a whole tone
+        away), each with the two keys to light, its interval now, the player's pair if
+        they have one, and the computed pair, which nobody has tried on this keyboard."""
+        return guard(tutor.fingering_book, action, fingers, hand, keys, root, quality, inversion, notes, trill)
 
     @server.tool()
     def set_lights(lights: list[dict] | None = None, clear: list[str] | str | None = None) -> str:

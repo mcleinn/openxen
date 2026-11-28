@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import collections
+import dataclasses
 import queue
 import re
 import threading
@@ -71,6 +72,10 @@ FINGER_NOTE = "1 thumb, 2 index, 3 middle, 4 ring, 5 little finger; 'fingers' li
 FINGER_LIGHTS = {1: "white", 2: "yellow", 3: "green", 4: "cyan", 5: "magenta"}    # as in ROLES finger1..finger5
 SAY_CHORD = ("When you introduce a chord, say which note is the root and where it lies in the shape, and name each finger with "
              "its light colour (the root is lit orange when fingers are not shown).")
+TRILL_UNTRIED = "a computed suggestion that nobody has tried on this keyboard"
+TRILL_EVERY_TUNING = ("It belongs to where the other key lies under the hand, not to the interval: the same shape is another interval in "
+                      "another tuning and keeps these fingers.")
+TRILL_RING_WIDTHS = 2.0     # the calibration round asks about keys up to this far from the main key (key widths)
 IMPROVISE_MAX_S = 150.0     # an improvisation take may be this long; progress is reported with every chord
 CLICK_CHANNEL = 10      # General MIDI percussion
 CLICK_NOTES = (76, 77)  # accented click, plain click: high and low wood block
@@ -604,19 +609,37 @@ class Tutor:
         raise TutorError("say which shape: keys (ids), a chord (root, quality, inversion) or notes")
 
     def fingering_book(self, action: str = "list", fingers: list[int] | None = None, hand: str = "right", keys: list[str] | None = None,
-                       root: str | None = None, quality: str = "major", inversion: int = 0, notes: list[str] | None = None) -> dict:
+                       root: str | None = None, quality: str = "major", inversion: int = 0, notes: list[str] | None = None,
+                       trill: bool = False) -> dict:
         """The player's own fingerings, kept between sessions. save: this shape is played
-        with these fingers (lowest note first); forget; list."""
+        with these fingers (lowest note first); forget; list. With `trill`: the two fingers
+        for a trill from the first of two keys or notes (the main note) to the second;
+        trill_shapes: the trill shapes to ask the player about."""
         action = action.strip().lower()
         side = hand.strip().lower()
-        if side not in ("left", "right"):
-            raise TutorError(f"hand must be 'left' or 'right', not '{hand}'")
+        if side not in ("left", "right") and not (side == "both" and action in ("list", "trill_shapes")):
+            raise TutorError(f"hand must be 'left' or 'right', not '{hand}'" + (
+                ": an entry is for one hand; save each hand by itself" if side == "both" else " (or 'both' for trill_shapes)"))
+        if action == "trill_shapes":
+            return self._trill_shapes(side)
         if action == "list":
             entries = self.player.entries()
-            return {"own_fingerings": entries, "note": "These take precedence over computed fingerings, on every root with the same hand shape."
-                    if entries else "The player has not settled on any fingering yet."}
+            out = {"own_fingerings": entries, "note": "These take precedence over computed fingerings, on every root with the same hand shape."
+                   if entries else "The player has not settled on any fingering yet."}
+            own_trills = self._trill_entries()
+            if own_trills:
+                out["own_trill_fingerings"] = own_trills
+                out["trills"] = ("One entry per hand and per place of the other key, seen from the main note; fingers = main note first. "
+                                 "They are used wherever a trill has that shape, from any key and in every tuning: 'now' is the interval "
+                                 "the shape gives in the current tuning, not part of the entry.")
+            else:
+                out["trills"] = ("No trill fingering of the player's own yet: trills get a computed pair that nobody has tried on this "
+                                 "keyboard. Ask when a trill comes up, or go through action trill_shapes once.")
+            return out
         if action not in ("save", "forget"):
-            raise TutorError("action must be one of: list, save, forget")
+            raise TutorError("action must be one of: list, save, forget, trill_shapes")
+        if trill:
+            return self._trill_book(action, side, fingers, keys, notes)
         ks, label = self._shape_keys(keys, root, quality, inversion, notes)
         pts = [self.keyboard.position_mm(k) for k in ks]
         if action == "forget":
@@ -633,6 +656,191 @@ class Tutor:
         self.player.remember(side, pts, own.fingers, general if root else label)
         return {"saved": {"for": general if root else label, "hand": side, **self._fingering_brief(own)},
                 "note": "Used from now on for this hand shape on every root, also inside phrases."}
+
+    # --- the player's own trill fingerings: per hand and per place of the other key, seen from the main note ---
+
+    def _trill_where(self, main: Key, other: Key) -> str:
+        """Where the other key of a trill lies, in the player's direction words: "the key to the upper right"."""
+        kb = self.keyboard
+        count = ("no", "one", "two", "three", "four", "five")
+        parts = [(d.replace("_", " "), count[n] if n < len(count) else str(n)) for d, n in kb.moves(main, other).items()]
+        if len(parts) == 1:
+            d, n = parts[0]
+            return f"the key to the {d}" if n == "one" else f"the key {n} keys to the {d}"
+        (ax, ay), (bx, by) = kb.position_mm(main), kb.position_mm(other)
+        straight = (" (straight away from you)" if by > ay else " (straight towards you)") if abs(bx - ax) < 1.0 else ""
+        return "the key " + " and ".join(f"{n} to the {d}" for d, n in parts) + straight
+
+    def _trill_interval(self, main: Key, other: Key) -> str:
+        """What the two keys are in the current tuning: "9 steps up, a whole tone (204 cents), in 53 notes per octave"."""
+        t = self.keyboard.tuning
+        steps = other.pitch - main.pitch
+        if steps == 0:
+            return "the same note"
+        if abs(steps) in voice_leading.step_names(t):
+            size = voice_leading.step_words(t, steps)
+        else:
+            size = f"{t.interval_words(steps)} {'up' if steps > 0 else 'down'}"
+        return f"{size}, in {t.edo} notes per octave"
+
+    def _trill_pairs(self, main: Key, other: Key, hand: str) -> tuple:
+        """The player's own pair for a trill from `main` to `other` (None if they have none),
+        and every pair as computed, likeliest first."""
+        side = hand.strip().lower()
+        pts = [self.keyboard.position_mm(main), self.keyboard.position_mm(other)]
+        try:
+            ranked = fingering_model.trill_fingerings(self.hand_model, pts, side, 20)
+        except fingering_model.FingeringError as e:
+            raise TutorError(str(e)) from None
+        mine = self.player.trill_preferred(side, *pts)
+        own = next((dataclasses.replace(f, own=True) for f in ranked if f.fingers == mine), None) if mine else None
+        return own, ranked
+
+    def _trill_ask(self, main: Key, other: Key, suggestion) -> str:
+        return (f"I have no fingering of yours for a trill to {self._trill_where(main, other)}; I would try {suggestion.text}: "
+                f"which fingers do you use?")
+
+    def _trill_save_hint(self, main: Key, other: Key, hand: str) -> str:
+        return (f"save the player's answer: fingering_book action save, trill true, keys [{main.id}, {other.id}], hand {hand.strip().lower()}, "
+                f"fingers [main note's, other note's]")
+
+    def _trill_advice(self, main: Key, other: Key, hand: str) -> dict:
+        """The fingers for one trill in short, for a step of a piece: the player's own pair, or
+        the computed one with the sentence to ask."""
+        own, ranked = self._trill_pairs(main, other, hand)
+        side = hand.strip().lower()
+        where = f"{self._trill_where(main, other)} ({self._trill_interval(main, other)})"
+        if own:
+            return {"hand": side, "fingers": own.text, "shape": "to " + where,
+                    "from": "your own fingering for a trill of this shape (fingering book): use it"}
+        return {"hand": side, "fingers": ranked[0].text, "shape": "to " + where, "from": TRILL_UNTRIED,
+                "ask": self._trill_ask(main, other, ranked[0]), "then": self._trill_save_hint(main, other, side)}
+
+    def _trill_two(self, keys: list[str] | None, notes: list[str] | None) -> tuple[Key, Key]:
+        """The main and the other key of a trill named by two keys or two notes, main first."""
+        kb = self.keyboard
+        if keys:
+            if len(keys) != 2 or keys[0].strip() == keys[1].strip():
+                raise TutorError("a trill is between two different keys: keys = [the main note's key, the other key]")
+            return kb.key(keys[0]), kb.key(keys[1])
+        if notes:
+            if len(notes) != 2:
+                raise TutorError("a trill is between two notes: notes = [the main note, the other note]")
+            (a, _), (b, _) = self._pitch(notes[0]), self._pitch(notes[1])
+            if a == b:
+                raise TutorError("the two notes of a trill must differ")
+            by_pitch = {k.pitch: k for k in kb.shapes([a, b], None, 1)[0].keys}
+            return by_pitch[a], by_pitch[b]
+        raise TutorError("say which trill: keys (two ids) or notes (two names), the main note first")
+
+    def _trill_book(self, action: str, side: str, fingers: list[int] | None, keys: list[str] | None, notes: list[str] | None) -> dict:
+        kb = self.keyboard
+        main, other = self._trill_two(keys, notes)
+        pts = [kb.position_mm(main), kb.position_mm(other)]
+        where, now = self._trill_where(main, other), self._trill_interval(main, other)
+        label = f"trill to {where}"
+        if action == "forget":
+            found = self.player.forget_trill(side, *pts)
+            return {"forgotten": f"{label}, {side} hand" if found else None,
+                    "note": "Trills of this shape get the computed pair again, as an untried suggestion." if found
+                    else f"There was no own trill fingering for this shape ({label}, {side} hand)."}
+        try:
+            wanted = tuple(int(f) for f in (fingers or ()))
+        except (TypeError, ValueError):
+            wanted = ()
+        _, ranked = self._trill_pairs(main, other, side)
+        chosen = next((f for f in ranked if f.fingers == wanted), None)
+        if chosen is None:
+            raise TutorError("action save with trill needs fingers: two different fingers, 1 (thumb) to 5 (little finger), "
+                             "the main note's first, then the other note's")
+        self.player.remember_trill(side, *pts, chosen.fingers, label)
+        names = fingering_model.FINGER_NAMES
+        saved = {"for": label, "hand": side, "fingers": chosen.text, "now": now,
+                 "keys": f"{names[chosen.fingers[0]]} on the main note ({main.name}), {names[chosen.fingers[1]]} on the other ({other.name})",
+                 "feel": chosen.feel}
+        computed = next(f for f in ranked if f.fingers != chosen.fingers)
+        return {"saved": saved, "computed_instead": f"{computed.text} (from now on shown only as an alternative)",
+                "note": f"Your own fingering: used from now on wherever a trill goes to {where} with the {side} hand, from any key. "
+                        + TRILL_EVERY_TUNING + " The way back (from the other key to this one), the other hand, and holding the two "
+                        "keys together as a chord are entries of their own."}
+
+    def _trill_place(self, to: tuple[int, int]) -> tuple[Key, Key] | None:
+        """Two keys of this keyboard that lie as a saved trill shape says, near the middle."""
+        kb = self.keyboard
+        centre = kb.centre()
+        reach = math.hypot(*to) / kb.key_pitch_mm + 0.5
+        for main in sorted(kb.keys.values(), key=lambda k: (kb.distance(k, centre), k.id))[:19]:
+            mx, my = kb.position_mm(main)
+            for other in kb.keys.values():
+                if other is not main and kb.distance(main, other) <= reach:
+                    ox, oy = kb.position_mm(other)
+                    if math.hypot(ox - mx - to[0], oy - my - to[1]) <= 1.5:
+                        return main, other
+        return None
+
+    def _trill_entries(self) -> list[dict]:
+        out = []
+        for e in self.player.trill_entries():
+            placed = self._trill_place(e["to"])
+            entry = {"hand": e["hand"], "fingers": "-".join(map(str, e["fingers"]))}
+            if placed:
+                entry["trill"] = "to " + self._trill_where(*placed)
+                entry["now"] = self._trill_interval(*placed)
+                entry["for_example"] = f"{placed[0].name} to {placed[1].name}"
+            else:       # saved on a keyfield lying at another angle
+                entry["trill"] = e["label"].removeprefix("trill ")
+                entry["now"] = "this keyboard has no two keys lying like that as it stands now"
+            out.append(entry)
+        return out
+
+    def _trill_shapes(self, side: str) -> dict:
+        """The trill shapes worth asking the player about once: from a key in the middle to each
+        of its six neighbours, and to the keys of the next ring that are at most a whole tone away."""
+        kb = self.keyboard
+        t = kb.tuning
+        main = kb.centre()
+        whole = t.steps_for(9 / 8)
+        mx, my = kb.position_mm(main)
+        found = []
+        for other in kb.keys.values():
+            d = kb.distance(main, other)
+            if other is main or d > TRILL_RING_WIDTHS + 0.01 or other.pitch == main.pitch:
+                continue
+            if d > 1.01 and abs(other.pitch - main.pitch) > whole:
+                continue
+            ox, oy = kb.position_mm(other)
+            found.append((d > 1.01, round(math.degrees(math.atan2(oy - my, ox - mx))) % 360, other))
+        hands = ("right", "left") if side == "both" else (side,)
+        shapes = []
+        missing = 0
+        for _, _, other in sorted(found, key=lambda f: f[:2]):
+            entry = {"trill": "to " + self._trill_where(main, other), "now": self._trill_interval(main, other),
+                     "light": {"main": main.id, "other": other.id}, "notes": f"{main.name} to {other.name}"}
+            for h in hands:
+                own, ranked = self._trill_pairs(main, other, h)
+                told = {"yours": own.text if own else None, "computed": ranked[0].text}
+                missing += own is None
+                if side == "both":
+                    entry[h] = told
+                else:
+                    entry.update(told)
+            shapes.append(entry)
+        return {
+            "hand": side, "main_key": self._key_brief(main),
+            "shapes": shapes,
+            "which": (f"From one key to each of its six neighbours, and to the keys of the next ring (up to {TRILL_RING_WIDTHS:g} key widths "
+                      f"away) that are at most a whole tone ({whole} steps) from it in this tuning: {len(shapes)} shapes. A trill up to a "
+                      f"key and the trill back down from it are different shapes and are both listed."),
+            "still_to_ask": missing,
+            "ask": ("For a shape without 'yours': \"I have no fingering of yours for a trill <trill>; I would try <computed>: which fingers "
+                    "do you use?\""),
+            "how": ("One shape at a time: light the two keys (set_lights: 'main' with role root, 'other' with role target), say which is "
+                    "the main note, let the player trill slowly and then faster, and ask which two fingers stay loose; offer 'computed' "
+                    "only as something to try. Save the answer with action save, trill true, keys [main, other], hand, fingers [main "
+                    "note's, other note's]. Skip shapes that already have 'yours' unless the player wants to change them. "
+                    "'computed' is " + TRILL_UNTRIED + "."),
+            "note": "An entry holds for its shape from any key and in every tuning. " + TRILL_EVERY_TUNING,
+        }
 
     def _finger_words(self, finger: int | None, root: bool = False) -> dict:
         """What the tutor says about one key of a chord: the finger, the colour it is lit in
@@ -1995,10 +2203,13 @@ class Tutor:
         # A written-out trill or tremolo becomes one step: its strokes leave the moments. It stays
         # written out where a side has no key, or where the two sides fall on the same key here.
         trill_at: dict[float, trills.Run] = {}
-        for run in sorted((run for events in events_of.values() for run in trills.find_runs(events, at)), key=lambda run: run.start):
+        hand_of: dict[float, str] = {}
+        runs = [(run, staff) for staff, events in events_of.items() for run in trills.find_runs(events, at)]
+        for run, staff in sorted(runs, key=lambda found: found[0].start):
             if run.start in trill_at or set(run.main) & set(run.other) or not all(pitch in kb._by_pitch for pitch in run.main + run.other):
                 continue
             trill_at[run.start] = run
+            hand_of[run.start] = "right" if staff == "upper" else "left"
             for when, struck in run.strokes:
                 moments[when] = moments.get(when, set()) - set(struck)
         # a note without a key is left out of the steps (they must be playable) and named
@@ -2012,7 +2223,7 @@ class Tutor:
             length = round((times[i + 1] if i + 1 < len(times) else at) - when, 3)
             run = trill_at.get(when)
             if run:
-                step = self._trill_step(run, pitches)
+                step = self._trill_step(run, pitches, hand_of[when])
                 step["beats"] = length
             else:
                 step = {"notes": [t.label(p) for p in pitches]} if len(pitches) > 1 else {"note": t.label(pitches[0])}
@@ -2029,8 +2240,9 @@ class Tutor:
             head["trills"] = ("A trill or tremolo that the score writes out stroke by stroke is ONE step here: 'trill' = [the side it starts on, "
                               "the side it alternates with], 'lasts' = its length in beats. 'beats' is, as in every step, the time to the "
                               "next step: where it is shorter than 'lasts', the steps that follow (marked 'over_trill') enter while the trill "
-                              "goes on. demo plays it as an even alternation, run_exercise judges its effect, fingering proposes the finger "
-                              "pair. Teach the effect (even, light, slow first); never count strokes.")
+                              "goes on. demo plays it as an even alternation, run_exercise judges its effect. 'trill_fingers' is the finger "
+                              "pair: the player's own for that shape if they have one, else a computed one to ask about (fingering "
+                              "gives the same with alternatives). Teach the effect (even, light, slow first); never count strokes.")
         if times and times[0] > 0:
             steps.insert(0, {"rest": True, "beats": times[0]})
         readings = []
@@ -2082,7 +2294,7 @@ class Tutor:
                         + (f"Next: bar {last_bar + 1}." if last_bar < len(bars) else "This is the last bar."))
         return head
 
-    def _trill_step(self, run, with_pitches: list[int]) -> dict:
+    def _trill_step(self, run, with_pitches: list[int], hand: str | None = None) -> dict:
         """One written-out trill or tremolo of a score as a step (`trills.find_runs` found it)."""
         t = self.keyboard.tuning
 
@@ -2105,6 +2317,9 @@ class Tutor:
                             f"no sign in the print: written out in the score as {count}") + " (for the speed, not to be counted)"}
         if all(single):
             step["interval"] = t.interval_words(abs(run.other[0] - run.main[0]))
+            if hand:
+                by_pitch = {k.pitch: k for k in self.keyboard.shapes([run.main[0], run.other[0]], None, 1)[0].keys}
+                step["trill_fingers"] = self._trill_advice(by_pitch[run.main[0]], by_pitch[run.other[0]], hand)
         if with_pitches:
             step["with"] = [t.label(p) for p in with_pitches]
         return step
@@ -2583,7 +2798,9 @@ class Tutor:
         if len(a) == 1 and len(b) == 1:
             by_pitch = {k.pitch: k for k in keys}
             two = [by_pitch[a[0]], by_pitch[b[0]]]
-            ranked = fingering_model.trill_fingerings(self.hand_model, [self.keyboard.position_mm(k) for k in two], hand, 20)
+            own, ranked = self._trill_pairs(two[0], two[1], hand)
+            side = hand.strip().lower()
+            where = self._trill_where(two[0], two[1])
             asked = raw.get("fingers")
             if asked:
                 try:
@@ -2593,14 +2810,29 @@ class Tutor:
                 chosen = next((f for f in ranked if f.fingers == wanted), None)
                 if chosen is None:
                     raise TutorError(f"step {i}: fingers must be two different fingers, 1 (thumb) to 5, for the main and the other note")
+                if own and own.fingers == chosen.fingers:
+                    chosen = own
             else:
-                chosen = ranked[0]
+                chosen = own or ranked[0]
             pair = {two[0].id: chosen.fingers[0], two[1].id: chosen.fingers[1]}
+            told["shape"] = f"to {where} ({self._trill_interval(two[0], two[1])})"
             told["fingers"] = (f"{chosen.text}: {fingering_model.FINGER_NAMES[chosen.fingers[0]]} on {names[a[0]]}, "
                                f"{fingering_model.FINGER_NAMES[chosen.fingers[1]]} on {names[b[0]]} ({chosen.feel})")
-            told["other_pairs"] = [f"{f.text} ({f.feel})" for f in ranked if f is not chosen][:3]
-            told["fingers_from"] = ("the pairs keyboard teaching names for trills (" + fingering_model.TRILL_SOURCE + "), weighed with where these "
-                                    "two keys lie under the hand; a suggestion: let the player try the pairs")
+            told["other_pairs"] = [f"{f.text} ({f.feel})" for f in ranked if f.fingers != chosen.fingers][:3]
+            computed = ("the pairs keyboard teaching names for trills (" + fingering_model.TRILL_SOURCE + "), weighed with where these "
+                        "two keys lie under the hand")
+            if chosen.own:
+                told["yours"] = "your own fingering for this shape: use it"
+                told["fingers_from"] = (f"your own fingering for a trill to {where} with the {side} hand (fingering book). "
+                                        + TRILL_EVERY_TUNING + " 'other_pairs' are computed (" + computed + "): alternatives, only if the "
+                                        "player asks for one")
+            else:
+                told["fingers_from"] = computed + "; " + TRILL_UNTRIED + ": let the player try the pairs"
+                if own:
+                    told["yours"] = f"the player's own fingering for this shape is {own.text}; this step names another pair to try"
+                else:
+                    told["ask"] = self._trill_ask(two[0], two[1], ranked[0])
+                    told["then"] = self._trill_save_hint(two[0], two[1], side)
         return told, pair
 
     def fingering(self, steps: list[dict], hand: str = "right", legato: bool = True) -> dict:

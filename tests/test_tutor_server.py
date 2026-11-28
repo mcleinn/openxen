@@ -425,6 +425,42 @@ def test_the_players_own_fingering_takes_precedence_and_is_kept(fake, tmp_path):
         again.pump.stop()
 
 
+def test_the_players_own_trill_fingering_through_the_tools(fake, tmp_path):
+    from tutor.player import Player
+
+    path = tmp_path / "player.json"
+    tutor = Tutor(fake, player=Player(path))
+    try:
+        shapes = json.loads(text(call(tutor, "fingering_book", {"action": "trill_shapes", "hand": "right"})))
+        first = shapes["shapes"][0]
+        assert first["trill"] == "to the key to the right" and first["yours"] is None and shapes["still_to_ask"] == len(shapes["shapes"])
+        mine = [1, 3] if first["computed"] != "1-3" else [2, 3]
+        saved = json.loads(text(call(tutor, "fingering_book", {"action": "save", "trill": True, "hand": "right", "fingers": mine,
+                                                                "keys": [first["light"]["main"], first["light"]["other"]]})))
+        assert saved["saved"]["for"] == "trill to the key to the right" and "every" not in saved["saved"]["now"]
+        step = json.loads(text(call(tutor, "fingering", {"steps": [{"trill": ["C4", "D4"]}]})))["steps"][0]
+        assert [k["finger"] for k in step["keys"]] == mine and "your own fingering" in step["trill"]["yours"]
+        other = json.loads(text(call(tutor, "fingering", {"steps": [{"trill": ["D4", "C4"]}]})))["steps"][0]["trill"]
+        assert other["ask"].startswith("I have no fingering of yours for a trill to the key to the left; I would try ")
+        drill = json.loads(text(call(tutor, "library", {"action": "pattern", "name": "trill", "root": "G4", "interval": "whole tone"})))
+        assert [g["fingers"] for g in drill["groups"]] == ["-".join(map(str, mine))]
+        listed = json.loads(text(call(tutor, "fingering_book")))
+        assert listed["own_fingerings"] == [] and [e["trill"] for e in listed["own_trill_fingerings"]] == ["to the key to the right"]
+        for result in (shapes, saved, step, drill, listed):
+            assert not INTERNALS.search(json.dumps(result)), INTERNALS.search(json.dumps(result))
+        bad = call(tutor, "fingering_book", {"action": "save", "trill": True, "notes": ["C4", "D4"], "fingers": [3, 3]})
+        assert bad.is_error and "two different fingers" in text(bad)
+    finally:
+        tutor.pump.stop()
+    again = Tutor(fake, player=Player(path))
+    try:
+        assert json.loads(text(call(again, "fingering_book", {"action": "forget", "trill": True, "notes": ["C4", "D4"]})))["forgotten"]
+        assert "ask" in json.loads(text(call(again, "fingering", {"steps": [{"trill": ["C4", "D4"]}]})))["steps"][0]["trill"]
+    finally:
+        again.pump.stop()
+
+
+
 def test_the_hand_is_measured_on_the_keys(fake, tmp_path):
     from tutor import fingering as F
     from tutor.player import Player

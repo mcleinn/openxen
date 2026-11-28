@@ -415,14 +415,22 @@ def trill(tutor, kind: str, root: str | None, interval: str | None, chords: list
     labels = [[t.label(p, n) for p, n in side] for side in sides]
     both = [labels[0][0] if len(labels[0]) == 1 else labels[0], labels[1][0] if len(labels[1]) == 1 else labels[1]]
     pairs: list = [None]
+    own, ask, others = None, None, []
     if all(len(side) == 1 for side in sides):
         keys = kb.shapes([sides[0][0][0], sides[1][0][0]], None, 1)[0].keys
         by_pitch = {k.pitch: k for k in keys}
         two = [by_pitch[sides[0][0][0]], by_pitch[sides[1][0][0]]]
-        try:
-            pairs = fingering_model.trill_fingerings(tutor.hand_model, [kb.position_mm(k) for k in two], hand, max(1, min(int(count or 3), 6)))
-        except fingering_model.FingeringError as e:
-            raise _error(str(e)) from None
+        # the player's own pair for this shape comes first and, unless more pairs are asked for, alone
+        own, ranked = tutor._trill_pairs(two[0], two[1], hand)
+        wanted = max(1, min(int(count or 3), 6))
+        if own:
+            computed = [f for f in ranked if f.fingers != own.fingers]
+            pairs = [own] + (computed[:wanted - 1] if count else [])
+            others = [f"{f.text} ({f.feel})" for f in computed[:3]]
+        else:
+            pairs = ranked[:wanted]
+            ask = (tutor._trill_ask(two[0], two[1], ranked[0]), tutor._trill_save_hint(two[0], two[1], hand))
+        shape = f"to {tutor._trill_where(two[0], two[1])} ({tutor._trill_interval(two[0], two[1])})"
     groups = []
     for pair in pairs:
         stages = []
@@ -436,7 +444,9 @@ def trill(tutor, kind: str, root: str | None, interval: str | None, chords: list
             stages.append(step)
         group = {"steps": stages}
         if pair:
-            group = {"fingers": pair.text, "feel": pair.feel, **({"why": list(pair.reasons)} if pair.reasons else {}), **group}
+            group = {"fingers": pair.text, "feel": pair.feel, **({"why": list(pair.reasons)} if pair.reasons else {}),
+                     **({"yours": "your own fingering for this shape: use it"} if pair.own else
+                        {"suggestion": "computed, not tried on this keyboard" + (": an alternative to the player's own" if own else "")}), **group}
         groups.append(group)
     out = {"pattern": kind, "what": lib.DRILLS["trill" if kind == "trill" else "tremolo"], "between": both}
     if size_words:
@@ -448,12 +458,24 @@ def trill(tutor, kind: str, root: str | None, interval: str | None, chords: list
                    "demo plays it as written at tempo_bpm (60: 2, 4, 8 strokes a second; a lower tempo slows all three) with both keys lit; "
                    "run_exercise (give it tempo_bpm too) judges the effect and says how fast and how even it was, never a number of "
                    "strokes. Go on to the next speed only when the slower one is even and the hand is loose. "
-                   + ("One group per finger pair, the likeliest first: let the player try them and keep what feels best. "
+                   + ("The first group is the player's own fingering for this shape: practise with it" + (
+                       "; the further groups are computed alternatives, only if the player wants to compare. " if len(pairs) > 1 else ". ")
+                      if own else
+                      "One group per finger pair, the likeliest first: let the player try them and keep what feels best, then save it "
+                      "(fingering_book, trill true). "
                       if pairs[0] else "The fingering tool gives fingers for the two hand positions. ")
                    + "How to practise is C. P. E. Bach's advice (Versuch I, 2.3, par. 8): slowly first, then faster, always evenly, the fingers "
                    "not lifted high, the muscles relaxed.")
     if pairs[0]:
-        out["finger_pairs"] = "ranked by " + fingering_model.TRILL_SOURCE + ", and by where these two keys lie under the hand"
+        ranked_by = "ranked by " + fingering_model.TRILL_SOURCE + ", and by where these two keys lie under the hand"
+        out["shape"] = shape
+        if own:
+            out["finger_pairs"] = ("your own fingering for this shape, from the fingering book; it holds for this shape in every tuning. "
+                                   "Computed pairs (" + ranked_by + ") are alternatives only")
+            out["other_pairs"] = others
+        else:
+            out["finger_pairs"] = ranked_by + ": computed suggestions that nobody has tried on this keyboard"
+            out["ask"], out["then"] = ask
     return out
 
 

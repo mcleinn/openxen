@@ -276,6 +276,28 @@ def test_a_written_out_trill_of_a_score_is_one_step(trill_piece):
     assert "trills" not in left and [s.get("beats", 1) for s in left["steps"]] == [1, 3.0]
 
 
+def test_a_trill_of_a_piece_takes_the_players_own_fingers(trill_piece):
+    t, _, piece = trill_piece
+    step = t.library("get", id=piece, phrase=1, part="upper")["steps"][0]
+    hint = step["trill_fingers"]
+    assert hint["hand"] == "right" and hint["shape"].startswith("to the key to the right (4 steps up") and "nobody has tried" in hint["from"]
+    assert hint["ask"] == f"I have no fingering of yours for a trill to the key to the right; I would try {hint['fingers']}: which fingers do you use?"
+    mine = [3, 4] if hint["fingers"] != "3-4" else [2, 3]
+    t.fingering_book("save", trill=True, notes=["E4", "F#4"], fingers=mine)       # the same shape on other keys
+    try:
+        both = t.library("get", id=piece, phrase=1, part="both")["steps"]
+        hint = both[0]["trill_fingers"]
+        assert hint["fingers"] == "-".join(map(str, mine)) and hint["from"].startswith("your own fingering") and "ask" not in hint
+        told = t.fingering(both[:1])["steps"][0]
+        fingers = {k["note"]: k["finger"] for k in told["keys"]}
+        assert [fingers["C4"], fingers["D4"]] == mine and told["trill"]["yours"].startswith("your own fingering")
+        shown = t.demo(both[:1], tempo_bpm=240, fingers=True)["played"][0]
+        assert {k["note"]: k.get("finger") for k in shown["keys"]}["D4"] == mine[1]
+    finally:
+        assert t.fingering_book("forget", trill=True, notes=["C4", "D4"])["forgotten"]
+    assert "ask" in t.library("get", id=piece, phrase=1, part="upper")["steps"][0]["trill_fingers"]
+
+
 def test_play_along_takes_the_same_notes_for_strokes(trill_piece):
     t, _, piece = trill_piece
     bars = t.music.piece(piece)["score"]
