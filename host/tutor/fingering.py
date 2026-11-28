@@ -288,6 +288,44 @@ def with_own(ranked: list[Fingering], own: Fingering | None) -> list[Fingering]:
     return [own] + [f for f in ranked if f.fingers != own.fingers]
 
 
+# --- a trill: two keys in quick alternation ---
+#
+# The research file (reference/research/fingering.md) has nothing on trills, so the pairs
+# come from keyboard teaching: C. P. E. Bach, Versuch ueber die wahre Art das Clavier zu
+# spielen I (1753), chapter 2.3 "On trills", par. 10: "at least two good trills in each
+# hand: in the right with the second and third finger, and with the third and fourth
+# finger; in the left with the thumb and second finger, and with the second and third
+# finger" (versuch.cpebach.org). Tuerk's Klavierschule (1789) likewise starts the trill
+# with 2 and 3. Those pairs cost nothing here. The points for the other pairs are this
+# project's choice (neighbouring fingers before pairs that skip one, the thumb with the
+# middle finger as pianists also use it, pairs with the little finger last); the weak
+# ring and little finger are counted by W_WEAK as everywhere. On top comes what the two
+# keys ask of the hand: the same distance costs as for any two keys, not doubled (the
+# fingers strike in turn, not together).
+TRILL_PAIRS = {
+    "right": {(2, 3): 0.0, (3, 4): 0.0, (1, 3): 0.5, (1, 2): 0.75, (2, 4): 1.0, (3, 5): 1.5, (4, 5): 2.0, (1, 4): 2.0, (2, 5): 2.5, (1, 5): 3.0},
+    "left": {(1, 2): 0.0, (2, 3): 0.0, (1, 3): 0.5, (3, 4): 0.75, (2, 4): 1.0, (3, 5): 1.5, (4, 5): 2.0, (1, 4): 2.0, (2, 5): 2.5, (1, 5): 3.0},
+}
+TRILL_SOURCE = "C. P. E. Bach, Versuch (1753) I, 2.3, par. 10: right hand 2-3 and 3-4, left hand 1-2 and 2-3"
+
+
+def trill_fingerings(hand: Hand, points: list[tuple[float, float]], side: str = "right", limit: int = 3) -> list[Fingering]:
+    """Finger pairs for a trill between two keys, best first: what the pair is worth for
+    trilling (TRILL_PAIRS) plus what the positions of the two keys ask of the hand."""
+    side = side.strip().lower()
+    if len(points) != 2:
+        raise FingeringError("a trill fingering is for two keys")
+    shape = _as_right(points, side)
+    found = []
+    for fingers in itertools.permutations(range(1, 6), 2):
+        f = _evaluate(hand, shape, fingers, chord=False)
+        pair = TRILL_PAIRS[side][tuple(sorted(fingers))]
+        reasons = (("a pair Bach names for trills",) if pair == 0 else ()) + f.reasons
+        found.append(Fingering(fingers, round(f.effort + pair, 2), reasons[:3], f.turn))
+    found.sort(key=lambda f: (f.effort, f.fingers))
+    return found[:limit]
+
+
 # --- a phrase: steps one after another ---
 
 @dataclass(frozen=True)

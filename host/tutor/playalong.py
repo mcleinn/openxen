@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import rhythm as R
+from . import trills
 
 HAND = {"upper": "right hand", "lower": "left hand"}
 MISS = EXTRA = 1.0          # cost of a written note not played, of a played note not written
@@ -165,8 +166,10 @@ def plan(bars: list[dict], part: str, bpm_of: Callable[[int], float], pitch_of: 
 
 
 def _mark_trills(notes: list[Note]) -> None:
-    """A trill sign stands on the first stroke; the file holds the strokes written out. The short
-    notes that follow it in the same hand on the trill's notes are its strokes."""
+    """The file holds trills and tremolos written out stroke by stroke. Which notes are such
+    strokes is decided by `trills.find_runs`, the rule `library get` uses to hand a trill out as
+    one step: after a trill sign, or two sides taking turns fast for a beat or more. The first
+    stroke is judged like any note; the later ones are ornaments."""
     for hand in HAND:
         moments: list[list[Note]] = []
         for n in sorted((n for n in notes if n.hand == hand), key=lambda n: n.q):
@@ -174,20 +177,18 @@ def _mark_trills(notes: list[Note]) -> None:
                 moments[-1].append(n)
             else:
                 moments.append([n])
-        for i, moment in enumerate(moments):
-            if not any(n.trill for n in moment) or i + 1 >= len(moments):
-                continue
-            pool = frozenset(n.pitch for n in moment) | frozenset(n.pitch for n in moments[i + 1])
-            for n in moment:
-                n.absorb = pool
-            j = i + 1
-            while (j < len(moments) and moments[j][0].q - moments[j - 1][0].q <= 0.3 + 1e-6
-                   and max(n.quarters for n in moments[j]) <= 0.3 + 1e-6 and all(n.pitch in pool for n in moments[j])):
-                for n in moments[j]:
-                    n.absorb = pool
-                    if n.kind == "note":
-                        n.kind = "trill"
-                j += 1
+        events = [trills.Event(moment[0].q, max(n.quarters for n in moment), tuple(n.pitch for n in moment if n.kind != "grace"),
+                               tuple(n.pitch for n in moment if n.trill), tuple(n.pitch for n in moment if n.kind == "grace"))
+                  for moment in moments]
+        at = {round(moment[0].q, 4): moment for moment in moments}
+        for run in trills.find_runs(events):
+            pool = frozenset(run.main) | frozenset(run.other)
+            for k, (when, struck) in enumerate(run.strokes):
+                for n in at.get(when, []):
+                    if n.pitch in struck and n.kind != "grace":
+                        n.absorb = pool
+                        if k:
+                            n.kind = "trill"
 
 
 def groups_of(notes: list[Note]) -> list[Group]:

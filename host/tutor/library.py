@@ -308,6 +308,23 @@ PATTERNS = {
 }
 
 
+# Drills that are not patterns over a scale: built in `drills.py`, asked for like a pattern.
+DRILLS = {
+    "inversions": "all inversions of one chord up the keyboard and back (root position, 1st, 2nd, 3rd for four-note chords, the next "
+                  "octave ...): root, quality, voicing = full (solid) or arpeggio (broken), count = octaves, direction = up or down",
+    "inversion_through": "one inversion (inversion = 1, 2, 3; 0 = root position) through a progression: chords = Roman numerals in the "
+                         "key root + scale, or chord names; without chords the chords of the scale; or id (and section) = a jazz tune",
+    "nearest_inversions": "a progression (given like inversion_through) voiced so that each chord is the inversion nearest to the one "
+                          "before: common notes stay, the others move by the smallest steps; each step says which",
+    "name_inversions": "inversions to show or play in a shuffled order that a seed repeats, each with its answer: root + quality, or "
+                       "chords, count = how many",
+    "trill": "a trill between two notes an interval apart (interval = step, comma, quarter tone, semitone, whole tone ... or a number of "
+             "steps above root), with each finger pair (count = how many pairs, hand), slow to fast",
+    "tremolo": "the same between two notes further apart (interval = minor third ... octave) or between chords (chords = one chord, "
+               "split in two, or two chords without a common note)",
+}
+
+
 def pattern(name: str, scale: list[int]) -> list[list[int]]:
     """`scale`: ascending pitches from the tonic to its octave. Returns the exercise as
     groups (phrases) of pitches."""

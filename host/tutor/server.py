@@ -205,7 +205,8 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         where moving the hand costs less. Per step: the keys with their finger, how it
         feels, what the context changed, and other good fingerings of that step alone.
         This is a computed starting point for an average hand, not a rule: present it as
-        a suggestion, offer the alternatives, and take the player's own choice over it."""
+        a suggestion, offer the alternatives, and take the player's own choice over it.
+        A trill step gets a finger pair for trilling (`trill.fingers`, with other pairs)."""
         return guard(tutor.fingering, steps, hand, legato)
 
     @server.tool()
@@ -213,8 +214,10 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
                 tradition: str | None = None, mode: str | None = None, form: str | None = None, level: int | None = None,
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
-                sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half", nearest: bool = False, section: str | int | None = None, bars: int | None = None) -> str:
+                sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int | None = None,
+                rhythm: str = "half", nearest: bool = False, section: str | int | None = None, bars: int | None = None,
+                quality: str = "major", inversion: int = 1, chords: list[str] | None = None, seed: int = 0,
+                interval: str | None = None, hand: str = "right") -> str:
         """Music to teach with, ready as steps. action "overview": what there is.
         "search": pieces by tradition (makam, chant, jazz), mode (a makam such as Rast, or
         "mode 1"), form, level (1 easiest .. 5; gives that level and below) or text;
@@ -225,6 +228,21 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         characteristic phrase and drone on the nearest steps of this tuning; a model, say so.
         "pattern": beginner patterns (steps, doubles, threes, fours, thirds, turns) with
         name = the pattern, root and scale = a mode; or name = a raga and scale = the pattern.
+        Ready drills are patterns too. Inversions (an inversion of a chord quality is one
+        hand shape on this keyboard, wherever it is played): name "inversions" = all
+        inversions of root + `quality` up the keyboard and back, voicing full (solid) or
+        arpeggio (broken), count = octaves; "inversion_through" = every chord of a
+        progression in `inversion` 1, 2 or 3 (`chords` = Roman numerals in the key root +
+        scale, or chord names; none = the chords of the scale; or id and section = a jazz
+        tune); "nearest_inversions" = the same progression with each chord in the inversion
+        nearest to the one before, each step saying which notes stay and which move;
+        "name_inversions" = inversions in an order shuffled by `seed`, each with its answer,
+        to show and ask, or to name and let the player play. Each step has `say`: the
+        inversion, the lowest note, the root. Trills: name "trill" = two notes `interval`
+        apart (step, comma, semitone, whole tone ... or a number of steps) above root, per
+        finger pair of `hand` (count = how many pairs) at three speeds; "tremolo" = two
+        notes further apart, or `chords`. A trill step is {"trill": [main, other]}: demo
+        alternates evenly, run_exercise judges the effect and never counts strokes.
         "fifths": the circle of fifths in this tuning as an exercise: root, name = chord
         quality (major, minor7, ...), voicing (full, shell, guide, root, arpeggio), direction
         up (up a fifth, down a fourth, ...) or down (the jazz cycle), count = how many
@@ -253,13 +271,17 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         `section` (its number or label): the whole section as steps if it is short, else its
         first phrase; `phrase` = which phrase of the section, `phrases` = how many in a row.
         Without `section`, phrase = a bar number and phrases = how many bars (up to 4).
-        part = upper, lower or both. Fetched bars say what they repeat. The outline is
+        part = upper, lower or both. Fetched bars say what they repeat. A trill or tremolo
+        the score writes out stroke by stroke comes as ONE step ("trill": the side it starts
+        on and the side it alternates with, "lasts": its beats; steps marked "over_trill"
+        enter while it goes on): teach its effect, not a number of strokes. The outline is
         computed from the notes, not a musician's analysis, and its phrases are suggestions.
         Makam pieces are written in 53 steps per octave: switch the tuning, or pass
         nearest=true to play a piece written for another tuning on the nearest notes of
         this one (an approximation; the result says how far off). One phrase at a time."""
         return guard(tutor.library, action, id, phrase, phrases, tradition, mode, form, level, text, limit, name, root, scale, theory_pitches,
-                     part, voicing, sevenths, plain_roots, direction, count, rhythm, nearest, section, bars)
+                     part, voicing, sevenths, plain_roots, direction, count, rhythm, nearest, section, bars, quality, inversion, chords, seed,
+                     interval, hand)
 
     @server.tool()
     async def hand(ctx: Context, action: str = "status", hand: str = "right", fingers: list[int] | None = None,
@@ -294,17 +316,23 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
 
     @server.tool()
     async def demo(ctx: Context, steps: list[dict], tempo_bpm: float = 60, beats_per_step: float = 2,
-                   hand: str = "right", fingers: bool = False, repeat: int = 1, outline: bool = False) -> str:
+                   hand: str = "right", fingers: bool = False, repeat: int = 1, outline: bool = False,
+                   trill_rate: float | None = None) -> str:
         """Play and light steps for the player to watch and hear (listen first, then
         repeat). A step is {"chord": "C major"} (optional "inversion"), {"notes": ["C4","E4"]},
-        {"note": "E4"} or {"keys": [ids]}; "beats" in a step gives it its own length, and
+        {"note": "E4"}, {"keys": [ids]} or {"trill": ["A4", "B4"]} (a trill or tremolo: the
+        note it starts on and the note it alternates with, each a note or a list of notes;
+        "lasts" = beats it goes on). A trill sounds as an even alternation with both keys
+        lit, at its written speed at this tempo (thirty-second notes if it has none): lower
+        tempo_bpm or give `trill_rate` (strokes a second) to show it slowly.
+        "beats" in a step gives it its own length, and
         {"rest": true, "beats": 1} is a silence, so an arpeggio or a rhythm is shown as it
         goes: each key lights for as long as its note lasts. A low tempo_bpm slows it down
         for practice; `repeat` plays the figure several times in a row; `outline` keeps
         the keys of the whole figure dimly lit while the sounding one is bright. Takes len(steps) * beats_per_step beats; at most
         60 seconds per call. `fingers` colours the keys by finger."""
         return await blocking(ctx, tutor.demo, steps=steps, tempo_bpm=tempo_bpm, beats_per_step=beats_per_step, hand=hand, fingers=fingers,
-                              repeat=repeat, outline=outline)
+                              repeat=repeat, outline=outline, trill_rate=trill_rate)
 
     @server.tool()
     async def rhythm(ctx: Context, action: str = "patterns", pattern: str | None = None, tempo_bpm: float = 90, cycles: int = 2,
@@ -451,7 +479,8 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
     @server.tool()
     async def run_exercise(ctx: Context, steps: list[dict] | None = None, hints: str = "always", hint_delay_s: float = 4.0,
                            exact_keys: bool = False, max_extra: int = 0, timeout_s: float = 45, start_at: int = 1,
-                           hand: str = "right", fingers: bool = False, pause_s: float = 12.0) -> str:
+                           hand: str = "right", fingers: bool = False, pause_s: float = 12.0,
+                           tempo_bpm: float | None = None) -> str:
         """Practise steps in order; each step waits until the player has played it. Steps as
         in demo: chords, inversions, a progression, or single notes for a melody. `hints`:
         "always" lights the keys of each step, "after_delay" only after `hint_delay_s` or a
@@ -462,9 +491,15 @@ def build_server(tutor: Tutor, log: CallLog | None = None) -> MCPServer:
         Also ends with outcome "player paused" when the player tried a step, let go of all
         keys and then played nothing for `pause_s` seconds (0 = never): the step then lists
         what they played and what was expected, so you can respond instead of waiting.
-        Searching for the first key of a step is never taken as a pause."""
+        Searching for the first key of a step is never taken as a pause.
+        A trill step ({"trill": [main, other]}) is judged by its effect once the player
+        stops trilling: the two keys (or chords) taking turns at least three times, both
+        struck, begun on the main note, no other key, not too lumpy; with `tempo_bpm` also
+        at least half its written length. The number of strokes is never counted. Its
+        `trill` line says how it went: slow or fast, even or lumpy, which note is weaker."""
         return await blocking(ctx, tutor.run_exercise, steps=steps, hints=hints, hint_delay_s=hint_delay_s, exact_keys=exact_keys,
-                              max_extra=max_extra, timeout_s=timeout_s, start_at=start_at, hand=hand, fingers=fingers, pause_s=pause_s)
+                              max_extra=max_extra, timeout_s=timeout_s, start_at=start_at, hand=hand, fingers=fingers, pause_s=pause_s,
+                              tempo_bpm=tempo_bpm)
 
     @server.tool()
     def stop() -> str:

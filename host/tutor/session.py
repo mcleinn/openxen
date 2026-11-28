@@ -30,7 +30,9 @@ def harmony_model_xen(quality: str) -> bool:
     return bool(_CHORDS.get(quality, {}).get("xen"))
 from . import harmony as harmony_model
 from . import percussion
+from . import drills
 from . import playalong
+from . import trills
 from . import voiceleading as voice_leading
 from . import xen_progressions as xen_model
 from . import rhythm as rhythm_model
@@ -1965,44 +1967,70 @@ class Tutor:
         if part not in ("upper", "lower", "both"):
             raise TutorError("part must be upper (right hand), lower (left hand) or both")
         chosen = bars[first - 1:first - 1 + max(1, min(count, most))]
+        # What sounds at each moment; per hand the events in which trills and tremolos are looked for;
+        # what the print marks on a note: a grace note, the first stroke of a trill the file holds written out.
         moments: dict[float, set[int]] = {}
+        graces: set[tuple[float, int]] = set()
+        signed: set[tuple[float, int]] = set()
+        events_of: dict[str, list] = {"upper": [], "lower": []}
         at = 0.0
         for bar in chosen:
+            marks: dict[tuple[str, float], dict[str, set]] = {}
+            for m in bar.get("marks", []):
+                marks.setdefault((m["staff"], round(m["beat"], 4)), {}).setdefault(m["mark"], set()).add(m["step"])
             for staff, events in bar["staves"].items():
                 if part in (staff, "both"):
-                    for beat, _, steps in events:
-                        moments.setdefault(round(at + beat, 4), set()).update(here(s)[0] + shift for s in steps)
+                    for beat, dur, written_steps in events:
+                        when = round(at + beat, 4)
+                        mark = marks.get((staff, round(beat, 4)), {})
+                        placed = [(s, here(s)[0] + shift) for s in written_steps]
+                        moments.setdefault(when, set()).update(pitch for _, pitch in placed)
+                        graces.update((when, pitch) for s, pitch in placed if s in mark.get("grace", ()))
+                        signed.update((when, pitch) for s, pitch in placed if s in mark.get("trill", ()))
+                        events_of[staff].append(trills.Event(
+                            when, dur, tuple(pitch for s, pitch in placed if s not in mark.get("grace", ())),
+                            tuple(pitch for s, pitch in placed if s in mark.get("trill", ())),
+                            tuple(pitch for s, pitch in placed if s in mark.get("grace", ()))))
             at += bar["length"]
-        # what the print marks on a note: a grace note, the first stroke of a trill that the file holds written out
-        marked: dict[tuple[float, int], str] = {}
-        at_bar = 0.0
-        for bar in chosen:
-            for m in bar.get("marks", []):
-                if part in (m["staff"], "both"):
-                    marked[(round(at_bar + m["beat"], 4), here(m["step"])[0] + shift)] = m["mark"]
-            at_bar += bar["length"]
+        # A written-out trill or tremolo becomes one step: its strokes leave the moments. It stays
+        # written out where a side has no key, or where the two sides fall on the same key here.
+        trill_at: dict[float, trills.Run] = {}
+        for run in sorted((run for events in events_of.values() for run in trills.find_runs(events, at)), key=lambda run: run.start):
+            if run.start in trill_at or set(run.main) & set(run.other) or not all(pitch in kb._by_pitch for pitch in run.main + run.other):
+                continue
+            trill_at[run.start] = run
+            for when, struck in run.strokes:
+                moments[when] = moments.get(when, set()) - set(struck)
         # a note without a key is left out of the steps (they must be playable) and named
         missing = [t.label(p) for when in sorted(moments) for p in sorted(moments[when]) if p not in kb._by_pitch]
         moments = {when: {p for p in pitches if p in kb._by_pitch} for when, pitches in moments.items()}
         moments = {when: pitches for when, pitches in moments.items() if pitches}
-        times = sorted(moments)
+        times = sorted(set(moments) | set(trill_at))
         steps = []
         for i, when in enumerate(times):
-            pitches = sorted(moments[when])
+            pitches = sorted(moments.get(when, ()))
             length = round((times[i + 1] if i + 1 < len(times) else at) - when, 3)
-            step = {"notes": [t.label(p) for p in pitches]} if len(pitches) > 1 else {"note": t.label(pitches[0])}
-            if length != 1:
+            run = trill_at.get(when)
+            if run:
+                step = self._trill_step(run, pitches)
                 step["beats"] = length
-            marks = {marked.get((when, p)) for p in pitches}
-            if marks == {"grace"}:
-                step["grace"] = "a grace note: small, quick, just before the next note; not counted in the beat"
-            if "trill" in marks:
-                run = 1
-                while i + run < len(times) and round(times[i + run] - times[i + run - 1], 4) == round(times[i + 1] - when, 4):
-                    run += 1
-                step["trill"] = (f"a trill begins here: the print has a trill sign, the next {run - 1} short notes are its strokes written out. "
-                                 f"Teach it as a trill between its two notes, not stroke by stroke.")
+            else:
+                step = {"notes": [t.label(p) for p in pitches]} if len(pitches) > 1 else {"note": t.label(pitches[0])}
+                if length != 1:
+                    step["beats"] = length
+                if all((when, p) in graces for p in pitches):
+                    step["grace"] = "a grace note: small, quick, just before the next note; not counted in the beat"
+                if any((when, p) in signed for p in pitches):
+                    step["trill_sign"] = "the print has a trill sign on this note; the file does not write the trill out here"
+            if any(other.start < when < other.end - 0.001 for other in trill_at.values()):
+                step["over_trill"] = "the trill goes on while this is played"
             steps.append(step)
+        if trill_at:
+            head["trills"] = ("A trill or tremolo that the score writes out stroke by stroke is ONE step here: 'trill' = [the side it starts on, "
+                              "the side it alternates with], 'lasts' = its length in beats. 'beats' is, as in every step, the time to the "
+                              "next step: where it is shorter than 'lasts', the steps that follow (marked 'over_trill') enter while the trill "
+                              "goes on. demo plays it as an even alternation, run_exercise judges its effect, fingering proposes the finger "
+                              "pair. Teach the effect (even, light, slow first); never count strokes.")
         if times and times[0] > 0:
             steps.insert(0, {"rest": True, "beats": times[0]})
         readings = []
@@ -2054,6 +2082,33 @@ class Tutor:
                         + (f"Next: bar {last_bar + 1}." if last_bar < len(bars) else "This is the last bar."))
         return head
 
+    def _trill_step(self, run, with_pitches: list[int]) -> dict:
+        """One written-out trill or tremolo of a score as a step (`trills.find_runs` found it)."""
+        t = self.keyboard.tuning
+
+        def side(pitches: tuple[int, ...]):
+            return t.label(pitches[0]) if len(pitches) == 1 else [t.label(p) for p in pitches]
+
+        kind = trills.kind_of(run.main, run.other, t.steps_for(9 / 8))
+        single = (len(run.main) == 1, len(run.other) == 1)
+        what = "these two keys" if all(single) else "the chord and the single note" if any(single) else "these two chords"
+        first = t.name(run.main[0]) if single[0] else "the chord " + " ".join(t.name(p) for p in run.main)
+        say = (f"a {kind}: alternate {what} quickly and evenly for {trills.beats_words(run.quarters)}, starting on {first}; "
+               f"how many times does not matter")
+        if run.lead_in:
+            say += "; the small notes before it lead into it"
+        if run.ending:
+            say += "; the small notes at its end (their own steps) lead on"
+        count = f"{len(run.strokes)} strokes, one every {run.gap:g} of a beat"
+        step = {"trill": [side(run.main), side(run.other)], "kind": kind, "lasts": run.quarters, "stroke_beats": run.gap, "say": say,
+                "written": (f"the print has a trill sign; the file writes it out as {count}" if run.marked else
+                            f"no sign in the print: written out in the score as {count}") + " (for the speed, not to be counted)"}
+        if all(single):
+            step["interval"] = t.interval_words(abs(run.other[0] - run.main[0]))
+        if with_pitches:
+            step["with"] = [t.label(p) for p in with_pitches]
+        return step
+
     def _library_overview(self) -> dict:
         t = self.keyboard.tuning
         counts = self.music.counts()
@@ -2076,7 +2131,8 @@ class Tutor:
                 for trad, levels in counts.items()}
         out["ragas"] = {"what": "raga outlines (scale, ascent, descent, characteristic phrase, drone) as a model on the nearest steps of the "
                                 "current tuning, with practice patterns", "names": lib.raga_names()}
-        out["patterns"] = {"what": "beginner patterns over any scale or raga, in any tuning", "names": lib.PATTERNS}
+        out["patterns"] = {"what": "beginner patterns over any scale or raga, in any tuning", "names": lib.PATTERNS,
+                           "drills": {"what": "ready drills, asked for like a pattern (action pattern, name = the drill)", **lib.DRILLS}}
         out["cycles"] = {"what": "scales and progressions that run around the circle: action cycle with name = scales, two_five_one, diatonic, "
                                  "minor_diatonic, dominants, bridge, major_thirds, spoke or rings",
                          "listening": "action comma: twelve_fifths, third, minor_third, schismatic, thirds_cycle, pump"}
@@ -2092,9 +2148,12 @@ class Tutor:
                 tradition: str | None = None, mode: str | None = None, form: str | None = None, level: int | None = None,
                 text: str | None = None, limit: int = 10, name: str | None = None, root: str | None = None,
                 scale: str = "major", theory_pitches: bool = False, part: str = "auto", voicing: str = "full",
-                sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int = 12,
-                rhythm: str = "half", nearest: bool = False, section: str | int | None = None, bars: int | None = None) -> dict:
-        """Teaching material. overview | search | get | raga | pattern | fifths | comma."""
+                sevenths: str = "auto", plain_roots: bool = False, direction: str = "up", count: int | None = None,
+                rhythm: str = "half", nearest: bool = False, section: str | int | None = None, bars: int | None = None,
+                quality: str = "major", inversion: int = 1, chords: list[str] | None = None, seed: int = 0,
+                interval: str | None = None, hand: str = "right") -> dict:
+        """Teaching material. overview | search | get | raga | pattern | fifths | comma | cycle.
+        `count` without a value is each action's own default (twelve moves, rounds or keys)."""
         action = action.strip().lower()
         kb = self.keyboard
         t = kb.tuning
@@ -2233,11 +2292,17 @@ class Tutor:
             return head
 
         if action == "fifths":
-            return self._fifths(root or "C", name or "major", voicing, direction, count, rhythm)
+            return self._fifths(root or "C", name or "major", voicing, direction, 12 if count is None else count, rhythm)
         if action == "comma":
-            return self._comma_lesson((name or "").strip().lower(), root or "C", count)
+            return self._comma_lesson((name or "").strip().lower(), root or "C", 12 if count is None else count)
         if action == "cycle":
-            return self._cycle((name or "").strip().lower(), root or "C", voicing, scale, count, sevenths, plain_roots)
+            return self._cycle((name or "").strip().lower(), root or "C", voicing, scale, 12 if count is None else count, sevenths, plain_roots)
+
+        drill = (name or "").strip().lower().replace(" ", "_").replace("-", "_")
+        if action == "pattern" and drill in lib.DRILLS:         # inversions, trills: drills.py
+            return drills.run(self, drill, root=root, quality=quality, scale=scale, voicing=voicing, direction=direction, count=count,
+                              inversion=inversion, chords=chords, piece_id=id, section=section, plain_roots=plain_roots, seed=seed,
+                              interval=interval, hand=hand)
 
         if action in ("raga", "pattern"):
             raga = None
@@ -2285,7 +2350,7 @@ class Tutor:
             else:
                 if not name or name.strip().lower() not in lib.PATTERNS:
                     raise TutorError(f"action pattern needs name: one of {', '.join(lib.PATTERNS)}; with root and scale (a mode such as major), "
-                                     f"or name = a raga and scale = the pattern.")
+                                     f"or name = a raga and scale = the pattern. Or a drill: {', '.join(lib.DRILLS)}.")
                 kind = name.strip().lower()
                 try:
                     scale_pitches = [p for p, _ in t.scale(sa_pitch, scale, sa_name)] + [sa_pitch + t.edo]
@@ -2359,19 +2424,56 @@ class Tutor:
 
     # --- steps shared by demo and run_exercise ---
 
-    def _resolve_steps(self, steps: list[dict], hand: str, exact_keys: bool, legato: bool = True, detail: bool = False) -> tuple[list[Step], list[dict]]:
+    def _trill_sides(self, raw: dict, i: int, near: Key | None) -> tuple[list[list[tuple[int, str]]], list[tuple[int, str]]]:
+        """The two sides of a trill step and the notes struck with its start, as (pitch, name)."""
+        sides = raw["trill"]
+        if not isinstance(sides, (list, tuple)) or len(sides) != 2:
+            raise TutorError(f"step {i}: trill needs two sides, [main, other], each a note or a list of notes (a chord)")
+        resolved = [[self._pitch(n, near) for n in (side if isinstance(side, (list, tuple)) else [side])] for side in sides]
+        a, b = ({p for p, _ in side} for side in resolved)
+        if not a or not b or a & b:
+            raise TutorError(f"step {i}: the two sides of a trill must be different notes")
+        struck_with = [(p, n) for p, n in (self._pitch(n, near) for n in (raw.get("with") or [])) if p not in a | b]
+        return resolved, struck_with
+
+    @staticmethod
+    def _trills_going_on(steps: list[dict]) -> dict[int, tuple[bool, list[int]]]:
+        """Which steps run under a trill that lasts longer than its own step: id of a step ->
+        (it is such a trill, the trill steps it lies under). A step's `beats` is the time to the
+        next step; a trill's `lasts` is how long it goes on."""
+        out: dict[int, tuple[bool, list[int]]] = {}
+        open_trills: list[list] = []        # [id of the trill step, beats it still goes on]
+        for raw in steps:
+            if not isinstance(raw, dict):
+                continue
+            beats = float(raw.get("beats") or 1)
+            under = [ident for ident, left in open_trills if left > 0.01]
+            if under and not raw.get("rest"):
+                out[id(raw)] = (False, under)
+                for ident in under:
+                    out[ident] = (True, out.get(ident, (True, []))[1])
+            open_trills = [[ident, left - beats] for ident, left in open_trills if left - beats > 0.01]
+            if raw.get("trill") and float(raw.get("lasts") or 0) > beats + 0.01:
+                open_trills.append([id(raw), float(raw["lasts"]) - beats])
+        return out
+
+    def _resolve_steps(self, steps: list[dict], hand: str, exact_keys: bool, legato: bool = True, detail: bool = False,
+                       tempo_bpm: float | None = None) -> tuple[list[Step], list[dict]]:
         """Tool-level steps -> engine steps plus what to tell the model about each.
         A step is {"chord": "C major"} (optionally "inversion"), {"notes": [..]},
-        {"note": "E4"} or {"keys": [ids]}; optional "label" and "near"."""
+        {"note": "E4"}, {"keys": [ids]} or {"trill": [main, other]} (each side a note or a
+        list of notes; optional "with": notes struck with its start, "lasts": beats it goes
+        on, "stroke_beats", "fingers", "start": "either"); optional "label" and "near"."""
         kb = self.keyboard
         if not steps:
             raise TutorError("steps is empty; give at least one step")
         if hand.strip().lower() not in ("left", "right"):
             raise TutorError(f"hand must be 'left' or 'right', not '{hand}'")
+        going_on = self._trills_going_on(steps)
         steps = [s for s in steps if not (isinstance(s, dict) and s.get("rest"))]       # a rest is not something to play
         if not steps:
             raise TutorError("steps has only rests; give at least one step to play")
-        pending: list[tuple[str, dict, bool, list[list[Key]], int | None]] = []    # label, names, exact, ways to play it, root
+        pending: list[tuple[str, dict, bool, list[list[Key]], int | None, dict | None]] = []    # label, names, exact, ways to play it, root, trill
         previous: Key | None = None
         for i, raw in enumerate(steps, 1):
             if not isinstance(raw, dict):
@@ -2379,7 +2481,16 @@ class Tutor:
             near = kb.key(raw["near"]) if raw.get("near") else previous
             exact = exact_keys
             step_root: int | None = None
-            if raw.get("keys"):
+            trill: dict | None = None
+            if raw.get("trill"):
+                sides, struck_with = self._trill_sides(raw, i, near)
+                names = {p: n for side in sides for p, n in side} | dict(struck_with)
+                trill = {"sides": tuple(tuple(p for p, _ in side) for side in sides), "with": tuple(p for p, _ in struck_with)}
+                trill["kind"] = trills.kind_of(*trill["sides"], kb.tuning.steps_for(9 / 8))
+                label = raw.get("label") or f"{trill['kind']} " + " / ".join(" ".join(n for _, n in side) for side in sides)
+                exact = False
+                ways = [list(s.keys) for s in kb.shapes(list(names), near, 3)]
+            elif raw.get("keys"):
                 keys = [kb.key(k) for k in raw["keys"]]
                 names = {k.pitch: k.name for k in keys}
                 label = raw.get("label") or " ".join(k.name for k in keys)
@@ -2402,20 +2513,33 @@ class Tutor:
                 label = raw.get("label") or label
                 ways = [list(s.keys) for s in kb.shapes(pitches, near, 3)]
             previous = ways[0][0]
-            pending.append((label, names, exact, ways, step_root))
+            pending.append((label, names, exact, ways, step_root, trill))
         # The phrase is fingered as a whole: which of the ways to play each step, and which
         # fingers, depends on the steps around it.
         planned = fingering_model.plan(
             self.hand_model,
-            [[fingering_model.Option(tuple((k.id, *kb.position_mm(k)) for k in way)) for way in ways] for _, _, _, ways, _ in pending],
+            [[fingering_model.Option(tuple((k.id, *kb.position_mm(k)) for k in way)) for way in ways] for _, _, _, ways, _, _ in pending],
             hand, legato, prefer=lambda pts: self.player.preferred(hand.strip().lower(), pts))
         out: list[Step] = []
         told: list[dict] = []
         edo = kb.tuning.edo
-        for i, ((label, names, exact, ways, step_root), chosen) in enumerate(zip(pending, planned), 1):
+        pool_of = {id(raw): {p for side in trill["sides"] for p in side} for raw, (_, _, _, _, _, trill) in zip(steps, pending) if trill}
+        for i, ((label, names, exact, ways, step_root, trill), chosen) in enumerate(zip(pending, planned), 1):
+            raw = steps[i - 1]
             keys = ways[chosen.option] if chosen else ways[0]
             fingers = dict(zip((k.id for k in keys), chosen.fingering.fingers)) if chosen else {}
-            out.append(Step(label=label, pitches=tuple(sorted({k.pitch for k in keys})), keys=tuple(k.id for k in keys), exact_keys=exact))
+            under = tuple(sorted({p for ident in going_on.get(id(raw), (False, []))[1] for p in pool_of.get(ident, ())}))
+            trill_told: dict | None = None
+            if trill:
+                trill_told, pair = self._trill_told(raw, i, trill, keys, names, hand)
+                fingers.update(pair)
+                lasts = float(raw.get("lasts") or raw.get("beats") or 0)
+                out.append(Step(label=label, pitches=tuple(sorted(trill["with"])), keys=tuple(k.id for k in keys), trill=trill["sides"],
+                                start_on_main=str(raw.get("start", "main")).lower() != "either",
+                                seconds=lasts * 60.0 / tempo_bpm if tempo_bpm and lasts else None,
+                                goes_on=going_on.get(id(raw), (False, []))[0], under=under))
+            else:
+                out.append(Step(label=label, pitches=tuple(sorted({k.pitch for k in keys})), keys=tuple(k.id for k in keys), exact_keys=exact, under=under))
             entry = {
                 "step": i,
                 "asked": label,
@@ -2431,11 +2555,53 @@ class Tutor:
                         entry["by_itself_also"] = [self._fingering_brief(f) for f in chosen.alternatives[:2]]
                 else:
                     entry["fingering"] = "more than five notes: two hands"
+            if trill_told:
+                entry["trill"] = trill_told
+                if "fingers" in trill_told:         # the pair for trilling, not the fingering of the two keys as a chord
+                    for name in ("fingering", "by_itself_also", "in_context"):
+                        entry.pop(name, None)
+                for name in ("lasts", "stroke_beats"):
+                    if raw.get(name):
+                        entry[name] = float(raw[name])
             told.append(entry)
         for entry, raw in zip(told, steps):
             if raw.get("beats"):
                 entry["beats"] = float(raw["beats"])
         return out, told
+
+    def _trill_told(self, raw: dict, i: int, trill: dict, keys: list[Key], names: dict[int, str], hand: str) -> tuple[dict, dict[str, int]]:
+        """What to tell about a trill step, and the finger of each of its two keys (two single
+        notes: a finger pair for trilling; chords keep the fingering of the whole shape)."""
+        t = self.keyboard.tuning
+        a, b = trill["sides"]
+        told: dict = {"kind": trill["kind"], "main": [t.label(p, names[p]) for p in a], "other": [t.label(p, names[p]) for p in b],
+                      "how": ("alternate the two quickly and evenly, starting on the main note; how often they change does not matter. "
+                              "Slowly and evenly first, the fingers low and the hand loose, then faster.")}
+        if trill["with"]:
+            told["with"] = [t.label(p, names[p]) for p in trill["with"]]
+        pair: dict[str, int] = {}
+        if len(a) == 1 and len(b) == 1:
+            by_pitch = {k.pitch: k for k in keys}
+            two = [by_pitch[a[0]], by_pitch[b[0]]]
+            ranked = fingering_model.trill_fingerings(self.hand_model, [self.keyboard.position_mm(k) for k in two], hand, 20)
+            asked = raw.get("fingers")
+            if asked:
+                try:
+                    wanted = tuple(int(f) for f in asked)
+                except (TypeError, ValueError):
+                    wanted = ()
+                chosen = next((f for f in ranked if f.fingers == wanted), None)
+                if chosen is None:
+                    raise TutorError(f"step {i}: fingers must be two different fingers, 1 (thumb) to 5, for the main and the other note")
+            else:
+                chosen = ranked[0]
+            pair = {two[0].id: chosen.fingers[0], two[1].id: chosen.fingers[1]}
+            told["fingers"] = (f"{chosen.text}: {fingering_model.FINGER_NAMES[chosen.fingers[0]]} on {names[a[0]]}, "
+                               f"{fingering_model.FINGER_NAMES[chosen.fingers[1]]} on {names[b[0]]} ({chosen.feel})")
+            told["other_pairs"] = [f"{f.text} ({f.feel})" for f in ranked if f is not chosen][:3]
+            told["fingers_from"] = ("the pairs keyboard teaching names for trills (" + fingering_model.TRILL_SOURCE + "), weighed with where these "
+                                    "two keys lie under the hand; a suggestion: let the player try the pairs")
+        return told, pair
 
     def fingering(self, steps: list[dict], hand: str = "right", legato: bool = True) -> dict:
         """Fingers for a phrase (a melody, a progression, or both mixed), chosen for the
@@ -2656,10 +2822,14 @@ class Tutor:
     # --- demo ---
 
     def demo(self, steps: list[dict], tempo_bpm: float = 60, beats_per_step: float = 2, hand: str = "right",
-             fingers: bool = False, repeat: int = 1, outline: bool = False, progress: Progress | None = None) -> dict:
+             fingers: bool = False, repeat: int = 1, outline: bool = False, progress: Progress | None = None,
+             trill_rate: float | None = None) -> dict:
         """Play and light steps in time. A step {"rest": true, "beats": n} is a silence.
         `repeat` plays the whole figure several times; `outline` keeps all its keys dimly
-        lit while the note that sounds is bright."""
+        lit while the note that sounds is bright. A trill step sounds as an even alternation
+        of its two sides, starting on the main one, both lit: at the step's written rate at
+        this tempo (thirty-second notes where it has none), or at `trill_rate` strokes a
+        second; it goes on for its `lasts` while later steps enter."""
         self._need_player("demo")
         if not steps or not isinstance(steps, list):
             raise TutorError("steps is empty; give at least one step")
@@ -2692,6 +2862,21 @@ class Tutor:
         kb = self.keyboard
         played = 0
         dim = {kb.key(k): ROLES["next"] for step in resolved for k in step.keys} if outline else {}
+        strokes: list[tuple[float, list[Key], int]] = []        # of trills that are sounding: when, keys, length in ms
+        rates: list[float] = []
+
+        def wait(seconds: float) -> None:
+            """Let the time pass, striking the trill strokes that fall into it."""
+            end = time.monotonic() + seconds
+            while not self._cancel.is_set():
+                now = time.monotonic()
+                while strokes and strokes[0][0] <= now + 0.001:
+                    _, struck, ms = strokes.pop(0)
+                    self.client.notes(on=[((k.board, k.key), 80, ms) for k in struck])
+                if now >= end:
+                    break
+                self._cancel.wait(max(0.0, (min(end, strokes[0][0]) if strokes else end) - time.monotonic()))
+
         try:
             for turn in range(repeat):
                 for i, step in enumerate(resolved):
@@ -2699,25 +2884,40 @@ class Tutor:
                         break
                     if rest_s.get(i):
                         self.lights.show(dim)
-                        self._cancel.wait(rest_s[i])
+                        wait(rest_s[i])
                     keys = [kb.key(k) for k in step.keys]
                     self.lights.show({**dim, **self._hint_colours(step, fingers, told[i])})
                     step_s = once[i]
-                    self.client.notes(on=[((k.board, k.key), 80, int(step_s * 900)) for k in keys])
+                    if step.trill:
+                        rate = trills.demo_rate(told[i].get("stroke_beats"), tempo_bpm, trill_rate)
+                        rates.append(rate)
+                        by_pitch = {k.pitch: k for k in keys}
+                        start = time.monotonic()
+                        strokes.extend((start + at, [by_pitch[p] for p in step.trill[side]], int(900 / rate))
+                                       for at, side in trills.schedule(beat_s * told[i].get("lasts", told[i].get("beats", beats_per_step)), rate))
+                        strokes.sort(key=lambda stroke: stroke[0])
+                        keys = [by_pitch[p] for p in step.pitches]         # what is struck with its start
+                    if keys:
+                        self.client.notes(on=[((k.board, k.key), 80, int(step_s * 900)) for k in keys])
                     played = max(played, i + 1)
                     if progress:
                         progress(turn * len(resolved) + i + 1, len(resolved) * repeat, step.label)
-                    self._cancel.wait(step_s)
+                    wait(step_s)
                 if self._cancel.is_set():
                     break
                 if rest_s.get(len(resolved)):
                     self.lights.show(dim)
-                    self._cancel.wait(rest_s[len(resolved)])
+                    wait(rest_s[len(resolved)])
+                if strokes:             # a trill that lasts beyond the last step
+                    wait(strokes[-1][0] - time.monotonic() + 0.01)
         finally:
             self.lights.clear()
             self._activity.release()
         out = {"played": told[:played], "stopped_early": played < len(resolved) or self._cancel.is_set(),
                "lights": "each key in its finger's colour (finger_light)" if fingers else "the root of a chord orange, its other notes white"}
+        if rates:
+            out["trills"] = (f"played as an even alternation at about {min(rates):g} strokes a second, starting on the main note, both keys lit: "
+                             f"the rate, not a number of strokes. Slower: a lower tempo_bpm, or trill_rate = strokes a second.")
         if any(k.get("role") == "root" for info in told[:played] for k in info["keys"]):
             out["say"] = SAY_CHORD
         return out
@@ -3499,7 +3699,7 @@ class Tutor:
             key = kb.at_address(ev["board"], ev["key"])
             if key is None:
                 continue
-            return Press(t=time.monotonic(), key=key.id, pitch=key.pitch, on=ev["kind"] == "on")
+            return Press(t=time.monotonic(), key=key.id, pitch=key.pitch, on=ev["kind"] == "on", velocity=int(ev.get("velocity") or 0))
         return None
 
     def _held_now(self) -> dict[str, int]:
@@ -3561,13 +3761,14 @@ class Tutor:
     def run_exercise(self, steps: list[dict] | None = None, hints: str = "always", hint_delay_s: float = 4.0,
                      exact_keys: bool = False, max_extra: int = 0, timeout_s: float = 45, start_at: int = 1,
                      hand: str = "right", fingers: bool = False, pause_s: float = PAUSE_S,
-                     progress: Progress | None = None) -> dict:
+                     progress: Progress | None = None, tempo_bpm: float | None = None) -> dict:
         """Wait mode: light each step's keys (per `hints`), wait until the player plays it,
         show right and wrong presses, go on. Returns when all steps are done, the time
         limit is reached, `stop` is called, or the player has tried a step and then stopped:
         something played in the step, all keys let go, and `pause_s` of silence (0 = never).
         Looking for the first key of a step never counts as a pause. `steps` None repeats
-        the last exercise."""
+        the last exercise. A trill step is judged by its effect when the player stops
+        trilling (`trills.judge`); with `tempo_bpm` its written length counts too."""
         self._need_player("run_exercise")
         kb = self.keyboard
         t = kb.tuning
@@ -3576,7 +3777,9 @@ class Tutor:
                 raise TutorError("there is no earlier exercise to continue; give steps")
             resolved, told = self._last_steps
         else:
-            resolved, told = self._resolve_steps(steps, hand, exact_keys)
+            if tempo_bpm is not None and not 20 <= tempo_bpm <= 240:
+                raise TutorError("tempo_bpm must be between 20 and 240")
+            resolved, told = self._resolve_steps(steps, hand, exact_keys, tempo_bpm=tempo_bpm)
             self._last_steps = (resolved, told)
         if not 1 <= start_at <= len(resolved):
             raise TutorError(f"start_at must be between 1 and {len(resolved)}")
@@ -3629,7 +3832,10 @@ class Tutor:
                         outcome = "player paused"
                         ex.stop(now, "tried, then paused")
                         break
-                    apply(ex.tick(now))
+                    at = ex.index
+                    apply(ex.tick(now))         # a trill is judged here, once the player has stopped
+                    if ex.index != at:
+                        tried = []
                     continue
                 last_activity = ev.t
                 if ev.on:
@@ -3664,6 +3870,10 @@ class Tutor:
                     entry["missing_notes"] = [f"{n['note']} ({n['number']})" for n in info["keys"] if kb.key(n["key"]).pitch in r.missing]
                 if hints != "always":
                     entry["needed_hint"] = r.hint_shown
+                if resolved[i].trill:
+                    facts = ex.trill_facts(i)
+                    if facts:
+                        entry["trill"] = trills.words(facts, " ".join(info["trill"]["main"]), " ".join(info["trill"]["other"]))
             report.append(entry)
         done = ex.completed
         asked = len(resolved) - (start_at - 1)
@@ -3680,4 +3890,9 @@ class Tutor:
                                "finding keys takes time on this keyboard.")
         if outcome != "finished":
             out["continue_with"] = f"run_exercise with start_at={ex.index + 1} and no steps repeats from where the player was"
+        if any(step.trill for step in resolved):
+            out["trills"] = (f"A trill step is judged by its effect, when the player stops trilling: the two sides taking turns at least "
+                             f"{trills.MIN_CHANGES} times, every note of both struck, started on the main note, no other key, not too lumpy"
+                             + (", and at least half the written time. " if tempo_bpm else "; its length is not judged without tempo_bpm. ")
+                             + "The number of strokes is never counted. 'trill' says how it went: speak of evenness and ease before speed.")
         return out

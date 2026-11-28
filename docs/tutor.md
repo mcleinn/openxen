@@ -104,7 +104,7 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `fingering` | Fingers for a phrase (melody, progression, mixed), chosen for the phrase as a whole; per step what the context changed and the alternatives |
 | `hand` | Measure the player's hand on the keys: resting position (five keys held), widest stretches thumb-little finger and index-little finger; or a size preset; kept in `host/tutor/state/player.json` |
 | `fingering_book` | The player's own fingerings per hand shape, kept between sessions; they come first in `find_shape` and `fingering` on every root |
-| `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns; a composition with its outline (sections, repeats, practice order) and by section or phrase; a jazz tune with its form (32 bars AABA, 12-bar blues), by section, and found by form or length |
+| `library` | Teaching material as ready steps: makam pieces and chant phrase by phrase, raga outlines, practice patterns, drills (chord inversions, trills and tremolos); a composition with its outline (sections, repeats, practice order) and by section or phrase; a jazz tune with its form (32 bars AABA, 12-bar blues), by section, and found by form or length |
 | `harmony` | From the tuning itself: the chords closest to a chord by the smallest movement of the voices (`neighbours`), a progression built from such moves (`path`), progressions and chord vocabularies from the Xenharmonic Wiki (`xen`). From one repertoire: which chord usually follows which (and precedes it), frequent runs, how usual each step of a given progression is, any progression as chord steps, and what the current tuning does to progressions |
 | `rhythm` | A click and a pattern to tap on any key; calibrates the player's own offset once (tap along to 20 clicks), then grades each tap (on it, close, near, off, missed, extra) for a level, with tendency, steadiness, drift and the weakest taps. Also the cycles of the rhythm library (talas with their theka, mridangam lessons, usul) by name, sounded on tabla or mridangam where set up |
 | `play_piece` | Plays a composition of the library from bar to bar in the background: absolute timing (no drift), every note with its own length, the piece's tempo marks (`tempi` per bar) times `speed`, octave transposition where the keyboard is too small, one hand or both; the print's dynamics as key velocity, hairpins as ramps, ritardando / rallentando as a gradual slowing, fermatas (what is assumed comes back as `expression`); `stop` ends it |
@@ -113,10 +113,10 @@ from the player. `lumatone`: the assembled five-module case, where the keyfield 
 | `tuning_notes` | Search and read a local copy of the Xenharmonic Wiki: the pages of every tuning the keyboard has a layout for, notation, the chain of fifths, commas, temperaments, beginners' guides |
 | `improvise` | The server keeps time: count-in, a backing (chords, roots, drone), the notes of the sounding chord lit; reports per chord what was played, the share of chord tones, what each chord started on, and one rule (only these notes, chord tones only, chord tone or guide tone first); the changes as steps, or a tune of the library by `id` and `section` (loop the bridge) |
 | `set_lights` | Light keys by id or note with a role (`target`, `next`, `root`, `lh`, `rh`, `finger1`..`finger5`, `correct`, `wrong`) or a colour; clear single keys or all |
-| `demo` | Play and light steps for the player to watch and hear |
+| `demo` | Play and light steps for the player to watch and hear; a trill step as an even alternation, slowly on request |
 | `played` | Everything played since the model was last told (or in the last N seconds), at once: notes in order, what was struck together, chord names, how long ago |
 | `listen` | Waits for the player from now on, until they pause: same answer format |
-| `run_exercise` | Wait mode: each step waits until played; right keys turn green, wrong ones red; per step result, seconds, attempts, wrong notes |
+| `run_exercise` | Wait mode: each step waits until played; right keys turn green, wrong ones red; per step result, seconds, attempts, wrong notes; a trill step judged by its effect (fast or slow, even or lumpy), never by the number of strokes |
 | `stop` | End a running demo, capture or exercise; lights off |
 
 The player does not wait for the model. The server remembers every note (10 minutes, 4000
@@ -143,6 +143,7 @@ a step is done when all its notes are held together and at least one was pressed
 step, so notes shared with the previous chord may stay down; any key sounding the right note
 counts unless `exact_keys`; a wrong key held with the chord blocks it until lifted; keys still
 held from before are ignored; hints `always`, `after_delay` (or after a failed try), `never`.
+A trill step is judged by its effect when the player stops trilling (see Trills and tremolos).
 
 Theory (`host/tutor/theory.py`): note and interval names from xenharmlib in ups-and-downs
 notation; chords are defined by what they should sound like (4:5:6, 10:12:15, 6:7:9, ...) and
@@ -199,6 +200,7 @@ neighbouring keys.
 | rhythm library: 22 Hindustani talas with theka, 40 Carnatic talas, 8 mridangam lessons, 36 usul | `reference/music/rhythm/tala.json` (research of 2026-11-26/27 from the sources in its `SOURCES.md`), converted by `python -m tutor.rhythm_build` to `build/tutor-library/rhythm.json`; tool `rhythm` | none | facts from many sources, each cycle lists its own; private use |
 | tabla samples | Subodh Deolekar, "Tabla strokes dataset", Zenodo 4327350, in the bolbox selection; `host/synth/tabla_kit.py` | tabla tuned to C# | CC BY 4.0 |
 | 6 practice patterns | alankar / varisai drills | any scale, any tuning | this repository |
+| 6 drills | generated: all inversions of a chord, one inversion through a progression, the nearest inversion from chord to chord, a naming drill; a trill and a tremolo drill (see Inversion drills, Trills and tremolos) | any | this repository |
 | comma lessons | generated: twelve fifths against the start, four fifths against the pure third, eight fifths down, three major thirds against the octave, a comma pump; each with notes to play and a pair to compare, and what comes out in the tuning | any | this repository |
 | cycles | generated: the major scale key after key (by fifths, fourths, whole or half steps); two-five-one key after key; the seven chords of a key by falling fifths, major and minor; dominant chains and the rhythm-changes bridge; the major-third cycle with how far it misses the octave; a spoke of the spiral; rings of fifths. Chords follow the comma policy of the jazz changes | any | this repository |
 | circle of fifths | generated: a chord or arpeggio moved up a fifth and down a fourth in turn (or the other way), with what the chain of fifths does in the tuning (how many fifths close it, where twelve land, four fifths against the pure third, in 53 the third eight fifths down) | any | this repository |
@@ -485,10 +487,11 @@ programs and the score-following literature do, with sources, is in
   written note not played and for a played note not written; the distance from the expected time
   only decides between notes of the same pitch. A missing and an extra note at one place are told as
   one wrong note. In follow mode it runs twice: by order alone, then with the tempo that gave.
-- **Ornaments**: a grace note, and the later strokes of a trill the file holds written out (`marks`
-  of the bar: the short notes after the trill sign on the trill's notes), are matched if played,
-  never judged for time and never counted as missing; more or fewer strokes on the trill's notes are
-  absorbed. The first stroke of a trill is judged like any note.
+- **Ornaments**: a grace note, and the later strokes of a trill or tremolo the file holds written out
+  (found by `trills.find_runs`, the rule that makes it one step in `library get`: after a trill sign, or
+  two sides taking turns in thirty-second notes for a beat or more), are matched if played, never judged
+  for time and never counted as missing; more or fewer strokes on the trill's notes are absorbed. The
+  first stroke of a trill is judged like any note.
 - **Chords**: a chord's time is the mean of its notes; notes more than the chord window (120 ms) apart
   are reported as a chord not struck together. **Held notes** are judged at their start; apart from
   that, notes written a quarter note or longer and let go before half their length are counted.
@@ -510,8 +513,8 @@ programs and the score-following literature do, with sources, is in
   moved to fit the keyboard exactly as `library get` does for the same `part`.
 
 Limits: times pass the same route as in `rhythm` (about 10 ms of jitter). The click follows the
-tempo marks bar by bar, with no ritardando inside a bar. Fast written-out runs without a mark are
-judged note by note. Dynamics are not judged. Not yet tried on a real keyboard.
+tempo marks bar by bar, with no ritardando inside a bar. Fast written-out runs that are no
+alternation of two sides (scales, arpeggios) are judged note by note. Dynamics are not judged. Not yet tried on a real keyboard.
 
 **Rhythm library.** `python -m tutor.rhythm_build` (from `host/`) converts the researched
 reference `reference/music/rhythm/tala.json` (third-party research, outside git; its `REPORT.md`
@@ -654,7 +657,8 @@ notes outside, and the same for the other layouts the keyboard can be switched t
 `build/layouts`, for the modules that are connected). The whole piece may be transposed by any interval
 (`_fit_shift`), since on an isomorphic layout that keeps shapes and fingering; bars handed out for teaching and
 `play_piece` use the same shift. Notes that still have no key are left out of the steps and named. Grace notes
-and trills of the print are carried per bar (`marks`) and shown on the step.
+and trills of the print are carried per bar (`marks`): a grace note is shown on its step, a written-out trill or
+tremolo becomes one step (see Trills and tremolos).
 
 ### The outline of a composition
 
@@ -764,6 +768,134 @@ A second tempo mark inside a bar (the tempo taken up again after a ritardando) h
 
 How these scores were transcribed and checked, which method fits which kind of source, and what went
 wrong, is in [score-transcription.md](score-transcription.md).
+
+### Inversion drills
+
+`host/tutor/drills.py`, asked for like a pattern (`library` action `pattern`, `name` = the drill). Each returns
+steps that `demo`, `fingering` and `run_exercise` take unchanged; every step carries `label` (the inversion's
+name), `root` (so the root keeps its light colour), `lowest`, `inversion` and `say`, e.g. "C major, 1st inversion:
+vE, the third, is lowest; the root C is on top". The note of each drill says what the keyboard adds: an inversion
+of a chord quality is one hand shape wherever it is played, so a triad quality is three shapes to learn, not
+thirty-six chords.
+
+| `name` | What it gives | Arguments |
+| --- | --- | --- |
+| `inversions` | all inversions of one chord up the keyboard and back: root position, 1st, 2nd (3rd for four-note chords), the next octave ... | `root`, `quality` (any the tuning has), `voicing` `full` (solid) or `arpeggio` (broken: `groups`, one per inversion), `count` = octaves (default: two if they fit), `direction` |
+| `inversion_through` | every chord of a progression in one inversion, each as near to the one before as that inversion allows | `inversion` 1, 2, 3; `chords` = Roman numerals in the key `root` + `scale`, or chord names; none = the chords of the scale; or `id` (and `section`) = a jazz tune of the library |
+| `nearest_inversions` | the progression voiced so that each chord is the inversion nearest to the one before; `voices` says which notes stay and which move ("C stays; vE moves up to F; G moves up to vA") | as above |
+| `name_inversions` | inversions in an order shuffled by `seed` (the same seed, the same order), each with its `answer`: to show one and ask, or to name one and let the player play it (`run_exercise` on the steps, `hints: "never"`) | `root` + `quality`, or `chords`; `seed`; `count` |
+
+Conventions followed, not invented here: the names (root position; first, second, third inversion by the third,
+fifth, seventh in the bass; the inversion is decided by the lowest note alone), figured bass (6, 6/4; 6/5, 4/3,
+4/2) and slash chords as `also_written` (any harmony textbook, e.g. Kostka & Payne, *Tonal Harmony*; "Inversion
+(music)", Wikipedia); the drill form "solid (blocked) and broken, from root position through the inversions, one
+or two octaves" of graded piano syllabuses (Royal Conservatory of Music, technical requirements 2022, read from
+the chart at colorinmypiano.com, not from the syllabus itself); "common tones stay, the other voices move by the
+smallest step" for the nearest inversion. That voicing is not computed anew: it is `voiceleading.move` and
+`voiced`, as in `harmony path`, so it has their property too: the least total movement, which in 31 leads F major
+to G major by three parallel whole tones where a harmony teacher would ask for contrary motion. Chords from
+Roman numerals are `theory`'s (pure thirds: C vE G in 53); a tune's chords take their roots from the key as the
+jazz changes do, but the plain `dominant7`. This project's own: step lengths, the shuffle with a seed.
+
+### Trills and tremolos
+
+`host/tutor/trills.py` (pure functions), used by `library get`, `demo`, `fingering`, `run_exercise` and
+`play_along`.
+
+**What the file holds.** The engraving the preludes were read from writes every trill out as fast alternating
+notes; the composer's edition prints a trill sign over one note. The library keeps all strokes and marks the
+first (`marks`: `trill`). In the 24 preludes (library of 2026-11-28, found with `trills.find_runs`):
+
+| | Count | Where | Written as |
+| --- | --- | --- | --- |
+| trills under a sign | 13 | Prelude 3 (bars 10, 11, 21, 22, 27, 28, 29, 31), 7 (17, 19), 9 (20), 13 (12, 14) | 11 to 24 strokes of a thirty-second note (bar 14 of No. 13: 23 strokes of a sixty-fourth), 1.5 to 3 beats; a minor second, in No. 9 a major second; never a quarter-tone |
+| tremolos under a sign | 2 | Prelude 8 (bar 16: a four-note chord against one note, 1.25 beats), 19 (bar 17: two two-note chords, 6 beats, written at two speeds) | 10 and 36 strokes |
+| without a sign | 4 | Prelude 7 bar 18 (the trill of bar 17 taken up again), 11 bar 35 (two notes a ninth apart, with melody notes in between), 13 bars 18 and 20 (a four-note chord against one note) | 10 to 25 strokes of a thirty-second note, 1.25 to 3 beats |
+
+The file has 19 `trill` marks for these 15 signs: a sign over a chord marks each of its notes. In Prelude 3 five
+of the trills are approached by three grace notes, and four are followed by three that lead on. The two Woyten
+pieces have none: their alternating figures are sixteenth notes in the metre.
+
+**How a run is found.** Per hand. With a sign: the main side is what stands under the sign, the other side the
+notes of the next moment (within a third of a beat) that are not under it. Without a sign: two moments with no
+note in common, a thirty-second note apart or closer, neither long, that then take turns for at least six
+strokes and one beat (four of five strokes changing side, at most one foreign note per three strokes). A run
+ends where no stroke follows within twice the shortest distance between strokes so far (so one missing stroke or
+one note in between does not end it), at a note of the trill that stands alone and lasts three strokes or longer
+(the note it closes on), at the next trill sign, or where one side starts taking turns with a third note. Grace
+notes are never strokes. The numbers are this project's choice. Limits: a tremolo in sixteenth notes or slower is
+left as written (it is rhythm, not ornament); a long note of the tremolo's own pitch inside it ends it early
+(No. 11 bar 35: the last three strokes stay notes); a sign whose strokes the file does not hold stays a note with
+`trill_sign`.
+
+**What the tutor gets** (`library get`, `_score_bars`): one step per trill or tremolo.
+
+```json
+{"trill": ["C5 (0)", "C#5 (2)"], "kind": "trill", "lasts": 3.0, "beats": 1.5, "stroke_beats": 0.125,
+ "interval": "minor second (m2, 2 steps)",
+ "say": "a trill: alternate these two keys quickly and evenly for three beats, starting on C5; how many times does not matter",
+ "written": "the print has a trill sign; the file writes it out as 24 strokes, one every 0.125 of a beat (for the speed, not to be counted)"}
+```
+
+`trill` = [the side it starts on, the side it alternates with], each a note or, for a chord, a list of notes;
+`with` = other notes struck at its start (the other hand). `beats` is what it is in every step, the time to the
+next step; `lasts` is the length of the trill. Where `lasts` is longer, the steps that follow enter while the
+trill goes on and carry `over_trill`: bar 10 of Prelude 3 with both hands is the trill step with `beats` 1.5 and
+`lasts` 3, then the left hand's chord on the dotted beat with `over_trill`. That is the whole device: no second
+time line, and a tool that knows nothing of trills still reads the right lengths. A trill stays written out where
+a side has no key, or where both sides fall on one key (a piece played on the nearest notes of another tuning).
+The file is unchanged, so the engraved count stays available (`written`, and `play_piece`).
+
+**How it is played for the player.** `demo`: an even alternation starting on the main side, both keys lit, at
+the step's written rate at the tempo given (`stroke_beats`; thirty-second notes where a step has none), at most
+twelve strokes a second; `tempo_bpm` or `trill_rate` (strokes a second) shows it slowly. It fills `lasts` while
+later steps enter. The number of strokes follows from rate and time. `play_piece` is unchanged and plays the
+written strokes: they are an even alternation at about five to sixteen strokes a second at the marked tempi, which is
+what a trill is, and the tempo changes and dynamics of the bar apply to them.
+
+**How it is judged** (`engine.py`, `trills.judge`; `run_exercise`). A trill step is judged when the player
+stops (nothing new for 0.6 s; for a slow trill three strokes' time, at most 1.5 s), by its effect: the two sides took turns at least three
+times; every note of both was struck; it began on the main side (unless the step says `"start": "either"`); no
+other key was pressed (beyond `max_extra`); it was not "lumpy" (the distances between strokes spread by more than
+60 % of their mean); and, if `tempo_bpm` is given to `run_exercise`, it lasted at least half the written time
+(wait mode has no tempo of its own, so without it the length is only reported). A try that fails counts as an
+attempt and the step waits on. Never compared: the number of strokes. Reported in words (`trill` in the step's
+result): slow, moderate or fast with strokes a second and seconds; shorter or longer than written; even, fairly
+even, uneven (15 / 30 / 60 %); "it limps: it lingers on D4" (one direction 1.4 times slower than the other);
+"rushing" or "dragging" for a trill that gets faster or slower (`rhythm.drift_ms`, the words of `play_along`);
+which note is weaker (key velocity). A trill with `lasts` beyond its `beats` is done as soon as it is going, and
+in the steps under it its notes are neither wanted nor wrong but still count for its report. A chord side struck
+within 60 ms is one stroke. `play_along` agrees: it takes its strokes from the same `find_runs`, judges the first
+like any note, and matches the others if played, never for time and never as missing, however many there are.
+
+**Fingers** (`fingering.trill_fingerings`, in `fingering` and in the drill). The research file has nothing on
+trills, so the pairs are C. P. E. Bach's (*Versuch* I, 1753, ch. 2.3 par. 10, versuch.cpebach.org): "at least two
+good trills in each hand: in the right with the second and third finger, and with the third and fourth finger;
+in the left with the thumb and second finger, and with the second and third finger". Those cost nothing; the
+points of the other pairs (1-3 next, pairs with the little finger last) are this project's choice. Added to it is
+what the two keys' positions ask of the hand, from the same distance tables as every fingering, so on this
+keyboard the answer depends on where the second key lies: for a comma the thumb and middle finger may come out
+ahead of 2-3. A step may name its own pair (`fingers`). Tremolos between chords take the fingering of the whole
+shape.
+
+**The drill** (`library` pattern `trill`, `tremolo`): two notes an interval apart (`interval`: step, comma,
+diesis, quarter tone, semitone, whole tone ..., or a number of steps; the tuning's names from
+`voiceleading.step_names`), one group per finger pair (`count` pairs, `hand`), each at three speeds: 2, 4 and 8
+strokes to a beat. `tremolo`: two notes further apart, one chord split in two (its lowest notes against the upper
+ones: this project's choice), or two chords without a common note. How to practise is Bach's (par. 8): slowly
+first, then faster, always evenly, the fingers low, the muscles relaxed.
+
+**The convention, and where it is from.** A trill is "a rapid alternation between two adjacent notes, usually a
+semitone or tone apart" (E. Taylor, *The AB Guide to Music Theory* I, p. 92, quoted in "Trill (music)",
+Wikipedia); a tremolo between two notes is the same at any interval, measured when the rate is written and
+otherwise as fast as possible ("Tremolo", Wikipedia, after C. Forsyth, *Orchestration*). Which note begins
+depends on the period: in the Baroque and Classical era on the upper note, "in music after the time of Mozart
+... on the principal note"; how many alternations fit "can vary according to the length of the notated note"
+and is "a matter of taste"; a trill may end with a turn (same article; its rules of thumb are not all sourced).
+For these preludes of 1934 the plain modern reading is used: begin on the written note unless a grace note
+before it says otherwise, alternate with the note the source gives (always the upper one here), unmeasured. That
+the engraver wrote thirty-second notes is taken as his way of showing a trill, not as a count. Tremolos written
+at two speeds (No. 19) are still judged as one tremolo. None of this has been tried on a real keyboard.
 
 ## Layouts for any tuning
 

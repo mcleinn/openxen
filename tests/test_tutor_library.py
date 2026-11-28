@@ -834,7 +834,10 @@ def test_what_of_a_piece_fits_the_keyboard_and_what_the_print_marks(tmp_path):
         assert fit["now"]["both hands"]["notes_with_a_key"] == "8 of 9 (88%)" and fit["now"]["both hands"]["bars_with_notes_outside"] == [1]
         assert fit["now"]["right hand alone"]["notes_with_a_key"] == "8 of 8 (100%)" and "1 of 9 notes have no key" in fit["say"]
         bar = t.library("get", id=piece["id"], phrase=1, part="both", nearest=True)
-        assert "grace" in bar["steps"][0] and "trill begins here" in bar["steps"][1]["trill"] and "5 short notes" in bar["steps"][1]["trill"]
+        # the written-out trill is one step: its two notes and its length, not six notes in a row
+        trill = bar["steps"][1]
+        assert "grace" in bar["steps"][0] and len(trill["trill"]) == 2 and trill["lasts"] == 0.75 and "6 strokes" in trill["written"]
+        assert "how many times does not matter" in trill["say"] and "lead into it" in trill["say"] and len(bar["steps"]) == 3
         assert len(bar["not_on_this_keyboard"]) == 1 and "left out" in bar["not_on_this_keyboard_note"]
         t.demo(bar["steps"][:3], tempo_bpm=240, beats_per_step=1)          # the steps are playable: nothing without a key is in them
         # the estimate's quick arithmetic for "nearest note in another tuning" agrees with xenharmlib's retune

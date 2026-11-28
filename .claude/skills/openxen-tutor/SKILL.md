@@ -129,7 +129,26 @@ roots (F major, G major). Point out that the hand does not change, only where it
 This is the central idea of the instrument; let the player discover it with their hands.
 
 **Inversions.** Same chord, `inversion` 1 and 2. Say which note moved to the top or bottom.
-Exercise: root position, first, second, back.
+Exercise: root position, first, second, back. Teach them as SHAPES: on this keyboard an
+inversion of a chord quality is one hand shape wherever it is played, so a major chord is
+three shapes (root position, first, second inversion), not thirty-six chords, and a seventh
+chord four. Learn each shape on one root, name what is lowest and where the root sits ("first
+inversion: the third is lowest, the root on top"), then move it to other roots and let the
+player notice that the hand does not change. `library` has the drills ready (action
+`pattern`); every step has `say` with the inversion's name, the lowest note and the root:
+- `inversions`: one chord through all its inversions up the keyboard and back; `voicing`
+  `full` for the notes together, `arpeggio` for one after another. The usual first drill,
+  hands separately, solid before broken.
+- `inversion_through`: a whole progression, or the chords of a scale, in one inversion: one
+  shape per chord quality, moved along.
+- `nearest_inversions`: the same progression as a pianist would take it, each chord in the
+  inversion nearest to the one before. `voices` says which notes stay and which move: say it
+  ("C stays, the other two fingers each move up one key") and have the held fingers stay
+  down. Do it after the shapes are known; this is where inversions become useful.
+- `name_inversions`: a quiz in an order that `seed` repeats. Show one step with `demo` (or
+  light it) without naming it, ask which inversion it is and which note is the root, then
+  give the `answer`; or name one and let the player play it (`run_exercise`, `hints:
+  "never"`). Keep it to a few at a time.
 
 **A progression.** `theory` progression gives the chords for Roman numerals in a key
 (I, IV, V7, vi). Run them as one exercise. Then talk about which fingers can stay down
@@ -222,9 +241,9 @@ you want them to play something now and wait for it.
   possible ("with this keyboard the left hand's low notes are missing; the right hand is
   complete"), and offer the tuning that fits. The piece may be moved as a whole by any
   interval: on this keyboard that keeps every shape and fingering, so it counts as playable;
-  the result's `moved` says by how much. A step marked `grace` is a grace note; a step marked
-  `trill` starts a trill whose strokes follow written out: teach it as a trill between its two
-  notes. Where a bar comes
+  the result's `moved` says by how much. A step marked `grace` is a grace note. A step with
+  `trill` is a whole trill or tremolo (see Trills below), however many notes the score writes
+  for it. Where a bar comes
   with `two_readings`, the printed score and the recording differ on a note: say so, play
   both, and let the player choose.
 - **Ragas** come as outlines: the notes, ascent, descent, a characteristic phrase and the
@@ -248,6 +267,40 @@ you want them to play something now and wait for it.
   says how far off; say so, and prefer switching the tuning when the piece is the point.
 - Tell the player where a piece comes from when you introduce it (the result names the
   tradition and source).
+
+## Trills and tremolos
+
+A trill is an effect, not a number of notes: two neighbouring keys in quick, even
+alternation for a length of time. A tremolo is the same between notes further apart or
+between two chords. The score files write trills out stroke by stroke; you get each as ONE
+step: `trill` = [the note it starts on, the note it alternates with], `lasts` = its length
+in beats, `say` = what to tell the player. Never ask for, count or correct a number of
+strokes, and never teach it as a row of notes.
+
+- **Show it.** `demo` plays the step as an even alternation and lights both keys. Slowly
+  first: a low `tempo_bpm`, or `trill_rate` 3 or 4 (strokes a second).
+- **Fingers.** `fingering` proposes a pair (`trill.fingers`) and `other_pairs`. On a piano
+  the usual pairs are 2-3 and 3-4 in the right hand, 1-2 and 2-3 in the left; here where the
+  second key lies decides too, so let the player try two pairs and keep what stays loose.
+- **Order.** Slowly and evenly, the fingers close to the keys, the hand loose; faster only
+  when the slow one is even. Evenness and ease come before speed, speed before length. If
+  the hand tightens, stop, shake it out, go back to slow.
+- **Let them try.** `run_exercise` accepts the step when the two keys take turns at least
+  three times, both sound, it starts on the main note and no other key is hit; give it
+  `tempo_bpm` if the length should count too. Its `trill` line tells you how it went: pass on
+  ONE thing. "uneven" or "it limps: it lingers on ..." means slower; "... is the weaker
+  note" means that finger needs the attention; "rushing" means it ran away. A try that is
+  "not yet a trill" says why (one key held, too few changes, started on the other note).
+- **In a piece.** `beats` is the time to the next step, `lasts` the trill's own length:
+  where `lasts` is longer, the next steps carry `over_trill` and enter while the trill goes
+  on (the other hand's chord under a trill). Teach the trill alone first, then the other
+  hand's notes alone, then together. Small notes before or after it are their own steps.
+  Begin on the written note; `play_piece` lets them hear it in context. `play_along` never
+  judges the strokes after the first.
+- **As a drill of its own:** `library` pattern `trill` with `root` and `interval` (step,
+  comma, semitone, whole tone ...): one group per finger pair, slow, moderate, fast.
+  `tremolo` for notes further apart or `chords`. A trill of one step of the tuning (a comma,
+  a diesis, a quarter tone) is something only this keyboard has: let the player hear it.
 
 ## The circle of fifths
 
@@ -570,6 +623,8 @@ notes per octave, or a layout name) switches the whole keyboard within a second.
 - `outcome: time limit`: the player ran out of time, nothing is wrong. Ask if they want to go
   on, then call `run_exercise` again with `start_at` as the result says and no steps.
 - `needed_hint: true`: not learned by heart yet. Repeat later.
+- A step with a `trill` line was a trill: it says how it sounded (speed, evenness, the
+  weaker note), never how many strokes. See Trills and tremolos.
 
 ## Fingering
 
